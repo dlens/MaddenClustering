@@ -16,7 +16,8 @@ Open the R markdown files (.Rmd) in RStudio and use the "knit" command.
 
 ### Excel Files
 
-* [AllScores.xlsx](AllScores.xlsx): All ratings for all players in Madden 16
+* [All_Player_Import.csv](All_Player_Import.csv): All raw attribute ratings for all players in Madden 2016 - REQUIRED FOR ALL OTHER FILES
+* [AllScores.xlsx](AllScores.xlsx): All ratings for all players on archetypes
 * [CenterScores.xls](CenterScores.xls): Ratings on each archetype for Centers
 * [CornerbackScores.xls](CornerbackScores.xls): Ratings on each archetype for Cornerbacks
 * [DefensiveEndScores.xls](DefensiveEndScores.xls): Ratings on each archetype for Defensive Ends
