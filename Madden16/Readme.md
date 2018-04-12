@@ -78,4 +78,4 @@ Open the R markdown files (.Rmd) in RStudio and use the "knit" command.
 ### Papers
 
 * [MaddenWriteup.pdf](MaddenWriteup.pdf): Categorization and Evaluation of players based on clustering analysis at all positions
-* [Quarterbacks Cluster Paper.pdf](Quarterbacks Cluster Paper.pdf): Paper (written in LaTeX) about cluster analysis on quarterbacks
+* [Quarterbacks_Cluster_Paper.pdf](Quarterbacks_Cluster_Paper.pdf): Paper (written in LaTeX) about cluster analysis on quarterbacks
