@@ -1,0 +1,412 @@
+---
+title: "Full_Backs_With_Overall"
+output: html_document
+---
+
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the FB attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenFBs = MaddenAllPlayers[which(MaddenAllPlayers$Position == "FB"),]
+FBAttributes = c(6:13, 20:21, 23, 25:34, 42:44)
+FBOriginal = MaddenFBs[FBAttributes]
+rownames(FBOriginal) = do.call(paste, c(MaddenFBs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+FBmeans = c()
+FBsds = c()
+FBzscores = matrix(0, nrow = length(FBOriginal[,1]), ncol = length(FBOriginal))
+for (i in 1:length(FBOriginal)) {
+  FBmeans = append(FBmeans, mean(FBOriginal[,i]))
+  FBsds = append(FBsds, sd(FBOriginal[,i])*sqrt((length(FBOriginal[,i])-1)/(length(FBOriginal[,i]))))
+  for (j in 1:length(FBOriginal[,i])) {
+    FBzscores[j,i] = (FBOriginal[j,i]-FBmeans[i])/FBsds[i]
+  }
+}
+FBzscores = data.frame(FBzscores)
+rownames(FBzscores) = do.call(paste, c(MaddenFBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(FBzscores) = colnames(FBOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+FBNormzscores = FBzscores[,-1]
+FBrowadjz = length(FBNormzscores[1,])
+for (i in 1:length(FBNormzscores)) {
+  for (j in 1:length(FBNormzscores[,1])) {
+  FBNormzscores[j, i] = FBzscores[j, i+1]-(sum(FBzscores[j,])/FBrowadjz)
+  }
+}
+FBNormzscores = data.frame(FBNormzscores)
+rownames(FBNormzscores) = do.call(paste, c(MaddenFBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(FBNormzscores) = colnames(FBzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+FBover = FBzscores[,1]
+
+FBfit <- lm(FBover ~ FBzscores[,2] + FBzscores[,3] + FBzscores[,4] + FBzscores[,5] + FBzscores[,6] + FBzscores[,7] + FBzscores[,8] + FBzscores[,9] + FBzscores[,10] + FBzscores[,11] + FBzscores[,12] + FBzscores[,13] + FBzscores[,14] + FBzscores[,15] + FBzscores[,16] + FBzscores[,17] + FBzscores[,18] + FBzscores[,19] + FBzscores[,20] + FBzscores[,21] + FBzscores[,22] + FBzscores[,23] + FBzscores[,24], data = FBzscores)
+summary(FBfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+FBReduced = FBzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 18, 19, 21)]
+FBreducedfit <- lm(FBover ~ FBReduced[,2] + FBReduced[,3] + FBReduced[,4] + FBReduced[,5] + FBReduced[,6] + FBReduced[,7] + FBReduced[,8] + FBReduced[,9] + FBReduced[,10] + FBReduced[,11] + FBReduced[,12] + FBReduced[,13] + FBReduced[,14] + FBReduced[,15] + FBReduced[,16], data = FBReduced)
+summary(FBreducedfit)
+
+# This normalizes the reduced criteria
+
+FBNormReduced = FBNormzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 9, 14, 15, 16, 17, 18, 20)]
+FBNormReducedtemp = FBNormReduced
+FBrowadjreduced = length(FBNormReduced[1,])
+for (i in 1:length(FBNormReduced)) {
+  for (j in 1:length(FBNormzscores[,1])) {
+  FBNormReduced[j, i] = FBNormReducedtemp[j, i]-(sum(FBNormReducedtemp[j,])/FBrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+FBreducedcovar = cov(FBReduced[,-1])
+
+FBcovar = cov(FBOriginal[,-1])
+
+set.seed(1)
+FBreducedcriteriaclusters = kmeans(FBreducedcovar, 3)
+set.seed(1)
+FBcriteriaclusters = kmeans(FBcovar, 5)
+clusplot(FBreducedcovar, FBreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(FBcovar, FBcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Power Running (Carrying, Pass Block, Injury, Stamina, Toughness, Trucking, Stiff Arm)
+# Cluster 2: Blocking (Strength, Run Block, Impact Block)
+# Cluster 3: Awareness
+# Cluster 4: Receiving (Catching, Elusiveness, BC Vision, Spin Move, Juke Move, Spectacular Catch, Catch In Traffic, Route Running)
+# Cluster 5: Speed Running (Speed, Acceleration, Agility, Jumping)
+
+# Reduced
+# Cluster 1: Running (Speed, Acceleration, Agility, Elusiveness, BC Vision, Spin Move)
+# Cluster 2: Receiving (Catching, Carrying, Trucking, Stiff Arm)
+# Cluster 3: Blocking (Strength, Awareness, Run Block, Pass Block, Impact Block)
+
+FBPowerRunningGroupFullReg = c(8, 10, 12, 13, 14, 15, 18)
+FBBlockingGroupFullReg = c(4, 9, 21)
+FBAwarenessGroupFullReg = c(6)
+FBReceivingGroupFullReg = c(7, 16, 17, 19, 20, 22, 23, 24)
+FBSpeedRunningGroupFullReg = c(2, 3, 5, 11)
+
+FBPowerRunningGroupWeightsFullReg = c(117.3, 118.3, 0, 2.096, 1.5, 113.1, 69.73)
+FBBlockingGroupWeightsFullReg = c(45.49, 378.8, 264.7)
+FBAwarenessGroupWeightsFullReg = c(585.9)
+FBReceivingGroupWeightsFullReg = c(57.72, 51.01, 62.61, 0, 10.62, 0, 24.57, 0)
+FBSpeedRunningGroupWeightsFullReg = c(80.68, 50.93, 28.51, 3.438)
+
+FBOVRFullReg = c()
+FBPowerRunningScoresFullReg = c()
+FBBlockingScoresFullReg = c()
+FBAwarenessScoresFullReg = c()
+FBReceivingScoresFullReg = c()
+FBSpeedRunningScoresFullReg = c()
+
+FBClusterFullReg = matrix(0, nrow = length(FBOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(FBzscores[,1])) {
+  FBOVRFullReg = append(FBOVRFullReg, FBzscores[i, 1])
+  FBPowerRunningScoresFullReg = append(FBPowerRunningScoresFullReg, sum(FBzscores[i, FBPowerRunningGroupFullReg]*FBPowerRunningGroupWeightsFullReg)/sum(FBPowerRunningGroupWeightsFullReg))
+  FBBlockingScoresFullReg = append(FBBlockingScoresFullReg, sum(FBzscores[i, FBBlockingGroupFullReg]*FBBlockingGroupWeightsFullReg)/sum(FBBlockingGroupWeightsFullReg))
+  FBAwarenessScoresFullReg = append(FBAwarenessScoresFullReg, sum(FBzscores[i, FBAwarenessGroupFullReg]*FBAwarenessGroupWeightsFullReg)/sum(FBAwarenessGroupWeightsFullReg))
+  FBReceivingScoresFullReg = append(FBReceivingScoresFullReg, sum(FBzscores[i, FBReceivingGroupFullReg]*FBReceivingGroupWeightsFullReg)/sum(FBReceivingGroupWeightsFullReg))
+  FBSpeedRunningScoresFullReg = append(FBSpeedRunningScoresFullReg, sum(FBzscores[i, FBSpeedRunningGroupFullReg]*FBSpeedRunningGroupWeightsFullReg)/sum(FBSpeedRunningGroupWeightsFullReg))
+  FBClusterFullReg[i, 1] = FBOVRFullReg[i]
+  FBClusterFullReg[i, 2] = FBPowerRunningScoresFullReg[i]
+  FBClusterFullReg[i, 3] = FBBlockingScoresFullReg[i]
+  FBClusterFullReg[i, 4] = FBAwarenessScoresFullReg[i]
+  FBClusterFullReg[i, 5] = FBReceivingScoresFullReg[i]
+  FBClusterFullReg[i, 6] = FBSpeedRunningScoresFullReg[i]
+}
+FBClusterFullReg = data.frame(FBClusterFullReg)
+rownames(FBClusterFullReg) = do.call(paste, c(MaddenFBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(FBClusterFullReg) = c("Overall", "Power Running", "Blocking", "Awareness", "Receiving", "Speed Running")
+
+FBClusterFullRegNoOverall = FBClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+FBPowerRunningGroupFullNorm = FBPowerRunningGroupFullReg-1
+FBBlockingGroupFullNorm = FBBlockingGroupFullReg-1
+FBAwarenessGroupFullNorm = FBAwarenessGroupFullReg-1
+FBReceivingGroupFullNorm = FBReceivingGroupFullReg-1
+FBSpeedRunningGroupFullNorm = FBSpeedRunningGroupFullReg-1
+
+FBPowerRunningGroupWeightsFullNorm = c(117.3, 118.3, 0, 2.096, 1.5, 113.1, 69.73)
+FBBlockingGroupWeightsFullNorm = c(45.49, 378.8, 264.7)
+FBAwarenessGroupWeightsFullNorm = c(585.9)
+FBReceivingGroupWeightsFullNorm = c(57.72, 51.01, 62.61, 0, 10.62, 0, 24.57, 0)
+FBSpeedRunningGroupWeightsFullNorm = c(80.68, 50.93, 28.51, 3.438)
+
+FBPowerRunningScoresFullNorm = c()
+FBBlockingScoresFullNorm = c()
+FBAwarenessScoresFullNorm = c()
+FBReceivingScoresFullNorm = c()
+FBSpeedRunningScoresFullNorm = c()
+
+FBClusterFullNorm = matrix(0, nrow = length(FBOriginal[,1]), ncol = 5)
+FBClusterFullNormtemp = FBClusterFullNorm
+
+for (i in 1: length(FBNormzscores[,1])) {
+  FBPowerRunningScoresFullNorm = append(FBPowerRunningScoresFullNorm, sum(FBNormzscores[i, FBPowerRunningGroupFullNorm]*FBPowerRunningGroupWeightsFullNorm)/sum(FBPowerRunningGroupWeightsFullNorm))
+  FBBlockingScoresFullNorm = append(FBBlockingScoresFullNorm, sum(FBNormzscores[i, FBBlockingGroupFullNorm]*FBBlockingGroupWeightsFullNorm)/sum(FBBlockingGroupWeightsFullNorm))
+  FBAwarenessScoresFullNorm = append(FBAwarenessScoresFullNorm, sum(FBNormzscores[i, FBAwarenessGroupFullNorm]*FBAwarenessGroupWeightsFullNorm)/sum(FBAwarenessGroupWeightsFullNorm))
+  FBReceivingScoresFullNorm = append(FBReceivingScoresFullNorm, sum(FBNormzscores[i, FBReceivingGroupFullNorm]*FBReceivingGroupWeightsFullNorm)/sum(FBReceivingGroupWeightsFullNorm))
+  FBSpeedRunningScoresFullNorm = append(FBSpeedRunningScoresFullNorm, sum(FBNormzscores[i, FBSpeedRunningGroupFullNorm]*FBSpeedRunningGroupWeightsFullNorm)/sum(FBSpeedRunningGroupWeightsFullNorm))
+  FBClusterFullNormtemp[i, 1] = FBPowerRunningScoresFullNorm[i]
+  FBClusterFullNormtemp[i, 2] = FBBlockingScoresFullNorm[i]
+  FBClusterFullNormtemp[i, 3] = FBAwarenessScoresFullNorm[i]
+  FBClusterFullNormtemp[i, 4] = FBReceivingScoresFullNorm[i]
+  FBClusterFullNormtemp[i, 5] = FBSpeedRunningScoresFullNorm[i]
+}
+
+FBClusterFullNormtemp = data.frame(FBClusterFullNormtemp)
+
+FBrowadjclusterFullNorm = length(FBClusterFullNorm[1,])
+for (i in 1:length(FBClusterFullNormtemp)) {
+  for (j in 1:length(FBClusterFullNormtemp[,1])) {
+  FBClusterFullNorm[j, i] = FBClusterFullNormtemp[j, i]-(sum(FBClusterFullNormtemp[j,])/FBrowadjclusterFullNorm)
+  }
+}
+
+FBClusterFullNorm = data.frame(FBClusterFullNorm)
+rownames(FBClusterFullNorm) = do.call(paste, c(MaddenFBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(FBClusterFullNorm) = c("Power Running", "Blocking", "Awareness", "Receiving", "Speed Running")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Running (Speed, Acceleration, Agility, Elusiveness, BC Vision, Spin Move)
+# Cluster 2: Receiving (Catching, Carrying, Trucking, Stiff Arm)
+# Cluster 3: Blocking (Strength, Awareness, Run Block, Pass Block, Impact Block)
+
+FBRunningGroupReducedReg = c(2, 3, 5, 12, 13, 15)
+FBReceivingGroupReducedReg = c(7, 8, 11, 14)
+FBBlockingGroupReducedReg = c(4, 6, 9, 10, 16)
+
+FBRunningGroupWeightsReducedReg = c(75.29, 57.38, 25.97, 58.83, 57.16, 0)
+FBReceivingGroupWeightsReducedReg = c(59.85, 123.7, 112.6, 61.11)
+FBBlockingGroupWeightsReducedReg = c(43.90, 571.9, 381.6, 118.0, 262.9)
+
+FBOVRReducedReg = c()
+FBRunningScoresReducedReg = c()
+FBReceivingScoresReducedReg = c()
+FBBlockingScoresReducedReg = c()
+
+FBClusterReducedReg = matrix(0, nrow = length(FBOriginal[,1]), ncol = 4)
+
+for (i in 1: length(FBReduced[,1])) {
+  FBOVRReducedReg = append(FBOVRReducedReg, FBReduced[i, 1])
+  FBRunningScoresReducedReg = append(FBRunningScoresReducedReg, sum(FBReduced[i, FBRunningGroupReducedReg]*FBRunningGroupWeightsReducedReg)/sum(FBRunningGroupWeightsReducedReg))
+  FBReceivingScoresReducedReg = append(FBReceivingScoresReducedReg, sum(FBReduced[i, FBReceivingGroupReducedReg]*FBReceivingGroupWeightsReducedReg)/sum(FBReceivingGroupWeightsReducedReg))
+  FBBlockingScoresReducedReg = append(FBBlockingScoresReducedReg, sum(FBReduced[i, FBBlockingGroupReducedReg]*FBBlockingGroupWeightsReducedReg)/sum(FBBlockingGroupWeightsReducedReg))
+  FBClusterReducedReg[i, 1] = FBOVRReducedReg[i]
+  FBClusterReducedReg[i, 2] = FBRunningScoresReducedReg[i]
+  FBClusterReducedReg[i, 3] = FBReceivingScoresReducedReg[i]
+  FBClusterReducedReg[i, 4] = FBBlockingScoresReducedReg[i]
+}
+FBClusterReducedReg = data.frame(FBClusterReducedReg)
+rownames(FBClusterReducedReg) = do.call(paste, c(MaddenFBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(FBClusterReducedReg) = c("Overall", "Running", "Receiving", "Blocking")
+
+FBClusterReducedRegNoOverall = FBClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+FBRunningGroupReducedNorm = FBRunningGroupReducedReg - 1
+FBReceivingGroupReducedNorm = FBReceivingGroupReducedReg - 1
+FBBlockingGroupReducedNorm = FBBlockingGroupReducedReg - 1
+
+FBRunningGroupWeightsReducedNorm = c(75.29, 57.38, 25.97, 58.83, 57.16, 0)
+FBReceivingGroupWeightsReducedNorm = c(59.85, 123.7, 112.6, 61.11)
+FBBlockingGroupWeightsReducedNorm = c(43.90, 571.9, 381.6, 118.0, 262.9)
+
+FBRunningScoresReducedNorm = c()
+FBReceivingScoresReducedNorm = c()
+FBBlockingScoresReducedNorm = c()
+
+FBClusterReducedNorm = matrix(0, nrow = length(FBNormReduced[,1]), ncol = 3)
+FBClusterReducedNormtemp = FBClusterReducedNorm
+for (i in 1: length(FBNormReduced[,1])) {
+  FBRunningScoresReducedNorm = append(FBRunningScoresReducedNorm, sum(FBNormReduced[i, FBRunningGroupReducedNorm]*FBRunningGroupWeightsReducedNorm)/sum(FBRunningGroupWeightsReducedNorm))
+  FBReceivingScoresReducedNorm = append(FBReceivingScoresReducedNorm, sum(FBNormReduced[i, FBReceivingGroupReducedNorm]*FBReceivingGroupWeightsReducedNorm)/sum(FBReceivingGroupWeightsReducedNorm))
+  FBBlockingScoresReducedNorm = append(FBBlockingScoresReducedNorm, sum(FBNormReduced[i, FBBlockingGroupReducedNorm]*FBBlockingGroupWeightsReducedNorm)/sum(FBBlockingGroupWeightsReducedNorm))
+  FBClusterReducedNormtemp[i, 1] = FBRunningScoresReducedNorm[i]
+  FBClusterReducedNormtemp[i, 2] = FBReceivingScoresReducedNorm[i]
+  FBClusterReducedNormtemp[i, 3] = FBBlockingScoresReducedNorm[i]
+}
+
+FBClusterReducedNormtemp = data.frame(FBClusterReducedNormtemp)
+
+FBrowadjclusterReducedNorm = length(FBClusterReducedNorm[1,])
+for (i in 1:length(FBClusterReducedNormtemp)) {
+  for (j in 1:length(FBClusterReducedNormtemp[,1])) {
+  FBClusterReducedNorm[j, i] = FBClusterReducedNormtemp[j, i]-(sum(FBClusterReducedNormtemp[j,])/FBrowadjclusterReducedNorm)
+  }
+}
+
+FBClusterReducedNorm = data.frame(FBClusterReducedNorm, row.names = do.call(paste, c(MaddenFBs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(FBClusterReducedNorm) = c("Running", "Receiving", "Blocking")
+
+# This clusters the players 
+
+FBnclusters = 5
+
+set.seed(1)
+FBkz = kmeans(FBzscores, FBnclusters)
+set.seed(1)
+FBNormkz = kmeans(FBNormzscores, FBnclusters)
+set.seed(1)
+FBkreduced = kmeans(FBReduced, FBnclusters)
+set.seed(1)
+FBNormkreduced = kmeans(FBNormReduced, FBnclusters)
+
+set.seed(1)
+FBkclusterReducedReg = kmeans(FBClusterReducedReg, FBnclusters)
+set.seed(1)
+FBkclusterReducedNorm = kmeans(FBClusterReducedNorm, FBnclusters)
+set.seed(1)
+FBkclusterFullReg = kmeans(FBClusterFullReg, FBnclusters)
+set.seed(1)
+FBkclusterFullNorm = kmeans(FBClusterFullNorm, FBnclusters)
+
+
+clusplot(FBzscores, FBkz$cluster, lines=0, labels=2, cex=0.75)
+FBkz$centers
+clusplot(FBNormzscores, FBNormkz$cluster, lines=0, labels=2, cex=0.75)
+FBNormkz$centers
+clusplot(FBReduced, FBkreduced$cluster, lines=0, labels=2, cex=0.75)
+FBkreduced$centers
+clusplot(FBNormReduced, FBNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+FBNormkreduced$centers
+
+clusplot(FBClusterReducedReg, FBkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+FBkclusterReducedReg$centers
+clusplot(FBClusterReducedNorm, FBkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+FBkclusterReducedNorm$centers
+clusplot(FBClusterFullReg, FBkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+FBkclusterFullReg$centers
+clusplot(FBClusterFullNorm, FBkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+FBkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 PURE BLOCKER Pure Blockers No Speed
+# Cluster 2 RECEIVING FB Pass Catchers
+# Cluster 3 BLOCKER/RUNNER Some Blocking Some Running No Receiving
+# Cluster 4 BALANCED FB Some Running Not Great Blocking Average Receiving
+# Cluster 5 PLAYMAKER Good Runners Receivers No Blocking
+
+# Full Norm
+# Cluster 1 AWARENESS BLOCKER Awareness, Blocker, No Speed
+# Cluster 2 BALANCED FB Low Awareness, good at everything else
+# Cluster 3 PURE BLOCKER
+# Cluster 4 RECEIVING FB
+# Cluster 5 PLAYMAKER
+
+FBClusterReducedNorm
+FBClusterFullNorm
+FBkclusterReducedNorm
+FBkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+FBreducedmetafit <- lm(FBClusterReducedReg[,1] ~ FBClusterReducedReg[,2] + FBClusterReducedReg[,3] + FBClusterReducedReg[,4], data = FBClusterReducedReg)
+summary(FBreducedmetafit)
+FBunreducedmetafit <- lm(FBClusterFullReg[,1] ~ FBClusterFullReg[,2] + FBClusterFullReg[,3] + FBClusterFullReg[,4] + FBClusterFullReg[,5] + FBClusterFullReg[,6], data = FBClusterFullReg)
+summary(FBunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+FBstandardreducedweights = c(271.8, 355.8, 1379.0)
+FBstandardreducedweights = FBstandardreducedweights/sum(FBstandardreducedweights)
+
+FBstandardunreducedweights = c(421.6, 685.4, 574.5, 174.5, 157.0)
+FBstandardunreducedweights = FBstandardunreducedweights/sum(FBstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+FBclusterreducedweights = normalizealldataframe(pnorm(FBkclusterReducedNorm$centers))
+FBclusterunreducedweights = normalizealldataframe(pnorm(FBkclusterFullNorm$centers))
+
+FBadjustedreducedweights = FBclusterreducedweights
+FBadjustedunreducedweights = FBclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  FBadjustedreducedweights[i,] = normalizetolength(FBstandardreducedweights+FBclusterreducedweights[i,])
+  FBadjustedunreducedweights[i,] = normalizetolength(FBstandardunreducedweights+FBclusterunreducedweights[i,])
+}
+
+FBTotalScoresReduced = FBClusterReducedRegNoOverall
+FBTotalScoresUnreduced = FBClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(FBOriginal[,1])) {
+  for (j in 1:5) {
+    FBTotalScoresReduced[i, j] = 100*pnorm(sum(FBClusterReducedRegNoOverall[i,]*FBadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(FBOriginal[,1])) {
+  for (j in 1:5) {
+    FBTotalScoresUnreduced[i, j] = 100*pnorm(sum(FBClusterFullRegNoOverall[i,]*FBadjustedunreducedweights[j,]))
+  }
+}
+
+FBkclusterFullNorm$centers
+FBkclusterReducedNorm$centers
+
+colnames(FBTotalScoresUnreduced) = c("Awareness Blocker", "Balanced FB", "Pure Blocker", "Receiving FB", "Playmaker")
+colnames(FBTotalScoresReduced) = c("Pure Blocker", "Receiving FB", "Blocker/Runner", "Balanced FB", "Playmaker")
+
+FBTotalScoresReduced
+FBTotalScoresUnreduced
+
+FBTotalScoresReducedwithOVR = FBTotalScoresReduced
+FBTotalScoresUnreducedwithOVR = FBTotalScoresUnreduced
+
+FBTotalScoresReducedwithOVR[,6] = FBOriginal[,1]
+FBTotalScoresUnreducedwithOVR[,6] = FBOriginal[,1]
+
+FBTotalScoresReducedwithOVR
+FBTotalScoresUnreducedwithOVR
+
+```

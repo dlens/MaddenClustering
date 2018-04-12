@@ -1,0 +1,398 @@
+---
+title: "Half_Back_Overall"
+output: html_document
+---
+---
+
+
+
+This first thing describes:
+* Run multiple regression 
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the RB attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenRBs = MaddenAllPlayers[which(MaddenAllPlayers$Position == "RB"),]
+RBAttributes = c(6:13, 21, 23, 25:33, 42:44)
+RBOriginal = MaddenRBs[RBAttributes]
+rownames(RBOriginal) = do.call(paste, c(MaddenRBs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+RBmeans = c()
+RBsds = c()
+RBzscores = matrix(0, nrow = length(RBOriginal[,1]), ncol = length(RBOriginal))
+for (i in 1:length(RBOriginal)) {
+  RBmeans = append(RBmeans, mean(RBOriginal[,i]))
+  RBsds = append(RBsds, sd(RBOriginal[,i])*sqrt((length(RBOriginal[,i])-1)/(length(RBOriginal[,i]))))
+  for (j in 1:length(RBOriginal[,i])) {
+    RBzscores[j,i] = (RBOriginal[j,i]-RBmeans[i])/RBsds[i]
+  }
+}
+RBzscores = data.frame(RBzscores)
+rownames(RBzscores) = do.call(paste, c(MaddenRBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(RBzscores) = colnames(RBOriginal)
+```
+
+```{r, echo=FALSE}
+# This normalizes Z scores so that all players sum to 0
+
+RBNormzscores = RBzscores[,-1]
+RBrowadjz = length(RBNormzscores[1,])
+for (i in 1:length(RBNormzscores)) {
+  for (j in 1:length(RBNormzscores[,1])) {
+  RBNormzscores[j, i] = RBzscores[j, i+1]-(sum(RBzscores[j,])/RBrowadjz)
+  }
+}
+RBNormzscores = data.frame(RBNormzscores)
+rownames(RBNormzscores) = do.call(paste, c(MaddenRBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(RBNormzscores) = colnames(RBzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+RBover = RBzscores[,1]
+
+RBfit <- lm(RBover ~ RBzscores[,2] + RBzscores[,3] + RBzscores[,4] + RBzscores[,5] + RBzscores[,6] + RBzscores[,7] + RBzscores[,8] + RBzscores[,9] + RBzscores[,10] + RBzscores[,11] + RBzscores[,12] + RBzscores[,13] + RBzscores[,14] + RBzscores[,15] + RBzscores[,16] + RBzscores[,17] + RBzscores[,18] + RBzscores[,19] + RBzscores[,20] + RBzscores[,21] + RBzscores[,22], data = RBzscores)
+summary(RBfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+RBReduced = RBzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 22)]
+RBreducedfit <- lm(RBover ~ RBReduced[,2] + RBReduced[,3] + RBReduced[,4] + RBReduced[,5] + RBReduced[,6] + RBReduced[,7] + RBReduced[,8] + RBReduced[,9] + RBReduced[,10] + RBReduced[,11] + RBReduced[,12] + RBReduced[,13] + RBReduced[,14] + RBReduced[,15], data = RBReduced)
+summary(RBreducedfit)
+
+# This normalizes the reduced criteria
+
+RBNormReduced = RBNormzscores[,c(1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 16, 17, 18, 21)]
+RBNormReducedtemp = RBNormReduced
+RBrowadjreduced = length(RBNormReduced[1,])
+for (i in 1:length(RBNormReduced)) {
+  for (j in 1:length(RBNormzscores[,1])) {
+  RBNormReduced[j, i] = RBNormReducedtemp[j, i]-(sum(RBNormReducedtemp[j,])/RBrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+RBreducedcovar = cov(RBReduced[,-1])
+
+RBcovar = cov(RBOriginal[,-1])
+
+set.seed(1)
+Preducedcriteriaclusters = kmeans(RBreducedcovar, 3)
+set.seed(1)
+Pcriteriaclusters = kmeans(RBcovar, 5)
+clusplot(RBreducedcovar, Preducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(RBcovar, Pcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+RBPassCatchingGroupFullReg = c(20:22)
+RBPowerRunningGroupFullReg = c(14, 17)
+RBAwarenessGroupFullReg = c(4, 6, 8, 9, 13)
+RBSpeedRunningGroupFullReg = c(2, 3, 5, 10, 11, 12, 16, 18)
+RBShiftinessGroupFullReg = c(15, 19)
+
+PassCatchingGroup = c(20:22)
+PowerRunningGroup = c(14, 17)
+AwarenessGroup = c(4, 6, 8, 9, 13)
+SpeedRunningGroup = c(2, 3, 5, 10, 11, 12, 16, 18)
+ShiftinessGroup = c(15, 19)
+
+RBPassCatchingGroupWeightsFullReg = c(0, 1.084, 3.745)
+RBPowerRunningGroupWeightsFullReg = c(33.72, 7.405)
+RBAwarenessGroupWeightsFullReg = c(5.199, 41.47, 20.41, 0.4197, 0)
+RBSpeedRunningGroupWeightsFullReg = c(11.12, 4.818, 12.51, 0, 0, 0, 20.69, 6.711)
+RBShiftinessGroupWeightsFullReg = c(26.05, 8.637)
+
+RBOVRFullReg = c()
+RBPassCatchingScoresFullReg = c()
+RBPowerRunningScoresFullReg = c()
+RBAwarenessScoresFullReg = c()
+RBSpeedRunningScoresFullReg = c()
+RBShiftinessScoresFullReg = c()
+
+RBClusterFullReg = matrix(0, nrow = length(RBOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(RBzscores[,1])) {
+  RBOVRFullReg = append(RBOVRFullReg, RBzscores[i, 1])
+  RBPassCatchingScoresFullReg = append(RBPassCatchingScoresFullReg, sum(RBzscores[i, RBPassCatchingGroupFullReg]*RBPassCatchingGroupWeightsFullReg)/sum(RBPassCatchingGroupWeightsFullReg))
+  RBPowerRunningScoresFullReg = append(RBPowerRunningScoresFullReg, sum(RBzscores[i, RBPowerRunningGroupFullReg]*RBPowerRunningGroupWeightsFullReg)/sum(RBPowerRunningGroupWeightsFullReg))
+  RBAwarenessScoresFullReg = append(RBAwarenessScoresFullReg, sum(RBzscores[i, RBAwarenessGroupFullReg]*RBAwarenessGroupWeightsFullReg)/sum(RBAwarenessGroupWeightsFullReg))
+  RBSpeedRunningScoresFullReg = append(RBSpeedRunningScoresFullReg, sum(RBzscores[i, RBSpeedRunningGroupFullReg]*RBSpeedRunningGroupWeightsFullReg)/sum(RBSpeedRunningGroupWeightsFullReg))
+  RBShiftinessScoresFullReg = append(RBShiftinessScoresFullReg, sum(RBzscores[i, RBShiftinessGroupFullReg]*RBShiftinessGroupWeightsFullReg)/sum(RBShiftinessGroupWeightsFullReg))
+  RBClusterFullReg[i, 1] = RBOVRFullReg[i]
+  RBClusterFullReg[i, 2] = RBPassCatchingScoresFullReg[i]
+  RBClusterFullReg[i, 3] = RBPowerRunningScoresFullReg[i]
+  RBClusterFullReg[i, 4] = RBAwarenessScoresFullReg[i]
+  RBClusterFullReg[i, 5] = RBSpeedRunningScoresFullReg[i]
+  RBClusterFullReg[i, 6] = RBShiftinessScoresFullReg[i]
+}
+RBClusterFullReg = data.frame(RBClusterFullReg)
+rownames(RBClusterFullReg) = do.call(paste, c(MaddenRBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(RBClusterFullReg) = c("Overall", "Pass Catching", "Power Running", "Awareness", "Speed Running", "Shiftiness")
+
+RBClusterFullRegNoOverall = RBClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+RBPassCatchingGroupFullNorm = RBPassCatchingGroupFullReg-1
+RBPowerRunningGroupFullNorm = RBPowerRunningGroupFullReg-1
+RBAwarenessGroupFullNorm = RBAwarenessGroupFullReg-1
+RBSpeedRunningGroupFullNorm = RBSpeedRunningGroupFullReg-1
+RBShiftinessGroupFullNorm = RBShiftinessGroupFullReg-1
+
+RBPassCatchingGroupWeightsFullNorm = c(0, 1.084, 3.745)
+RBPowerRunningGroupWeightsFullNorm = c(33.72, 7.405)
+RBAwarenessGroupWeightsFullNorm = c(5.199, 41.47, 20.41, 0.4197, 0)
+RBSpeedRunningGroupWeightsFullNorm = c(11.12, 4.818, 12.51, 0, 0, 0, 20.69, 6.711)
+RBShiftinessGroupWeightsFullNorm = c(26.05, 8.637)
+
+RBPassCatchingScoresFullNorm = c()
+RBPowerRunningScoresFullNorm = c()
+RBAwarenessScoresFullNorm = c()
+RBSpeedRunningScoresFullNorm = c()
+RBShiftinessScoresFullNorm = c()
+
+RBClusterFullNorm = matrix(0, nrow = length(RBOriginal[,1]), ncol = 5)
+RBClusterFullNormtemp = RBClusterFullNorm
+```
+
+```{r, echo=FALSE}
+
+for (i in 1: length(RBNormzscores[,1])) {
+  RBPassCatchingScoresFullNorm = append(RBPassCatchingScoresFullNorm, sum(RBNormzscores[i, RBPassCatchingGroupFullNorm]*RBPassCatchingGroupWeightsFullNorm)/sum(RBPassCatchingGroupWeightsFullNorm))
+  RBPowerRunningScoresFullNorm = append(RBPowerRunningScoresFullNorm, sum(RBNormzscores[i, RBPowerRunningGroupFullNorm]*RBPowerRunningGroupWeightsFullNorm)/sum(RBPowerRunningGroupWeightsFullNorm))
+  RBAwarenessScoresFullNorm = append(RBAwarenessScoresFullNorm, sum(RBNormzscores[i, RBAwarenessGroupFullNorm]*RBAwarenessGroupWeightsFullNorm)/sum(RBAwarenessGroupWeightsFullNorm))
+  RBSpeedRunningScoresFullNorm = append(RBSpeedRunningScoresFullNorm, sum(RBNormzscores[i, RBSpeedRunningGroupFullNorm]*RBSpeedRunningGroupWeightsFullNorm)/sum(RBSpeedRunningGroupWeightsFullNorm))
+  RBShiftinessScoresFullNorm = append(RBShiftinessScoresFullNorm, sum(RBNormzscores[i, RBShiftinessGroupFullNorm]*RBShiftinessGroupWeightsFullNorm)/sum(RBShiftinessGroupWeightsFullNorm))
+  RBClusterFullNormtemp[i, 1] = RBPassCatchingScoresFullNorm[i]
+  RBClusterFullNormtemp[i, 2] = RBPowerRunningScoresFullNorm[i]
+  RBClusterFullNormtemp[i, 3] = RBAwarenessScoresFullNorm[i]
+  RBClusterFullNormtemp[i, 4] = RBSpeedRunningScoresFullNorm[i]
+  RBClusterFullNormtemp[i, 5] = RBShiftinessScoresFullNorm[i]
+}
+
+RBClusterFullNormtemp = data.frame(RBClusterFullNormtemp)
+
+RBrowadjclusterFullNorm = length(RBClusterFullNorm[1,])
+for (i in 1:length(RBClusterFullNormtemp)) {
+  for (j in 1:length(RBClusterFullNormtemp[,1])) {
+  RBClusterFullNorm[j, i] = RBClusterFullNormtemp[j, i]-(sum(RBClusterFullNormtemp[j,])/RBrowadjclusterFullNorm)
+  }
+}
+
+RBClusterFullNorm = data.frame(RBClusterFullNorm)
+rownames(RBClusterFullNorm) = do.call(paste, c(MaddenRBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(RBClusterFullNorm) = c("Pass Catching", "Power Running", "Awareness", "Speed Running", "Shiftiness")
+
+# This does the above for the reduced metafeatures (3)
+
+RBSpeedRunningGroupReducedReg = c(2, 3, 5, 10, 14)
+RBAwarenessAndReceivingGroupReducedReg = c(6, 7, 11, 13, 15)
+RBPowerRunningGroupReducedReg = c(4, 8, 9, 12)
+RBSpeedRunningGroupWeightsReducedReg = c(11.25, 4.941, 11.98, 26.16, 8.773)
+RBAwarenessAndReceivingGroupWeightsReducedReg = c(41.24, 4.510, 20.41, 6.543, 3.868)
+RBPowerRunningGroupWeightsReducedReg = c(5.117, 20.51, 33.78, 7.580)
+
+RBOVRReducedReg = c()
+RBSpeedRunningScoresReducedReg = c()
+RBAwarenessAndReceivingScoresReducedReg = c()
+RBPowerRunningScoresReducedReg = c()
+
+RBClusterReducedReg = matrix(0, nrow = length(RBOriginal[,1]), ncol = 4)
+
+for (i in 1: length(RBReduced[,1])) {
+  RBOVRReducedReg = append(RBOVRReducedReg, RBReduced[i, 1])
+  RBSpeedRunningScoresReducedReg = append(RBSpeedRunningScoresReducedReg, sum(RBReduced[i, RBSpeedRunningGroupReducedReg]*RBSpeedRunningGroupWeightsReducedReg)/sum(RBSpeedRunningGroupWeightsReducedReg))
+  RBAwarenessAndReceivingScoresReducedReg = append(RBAwarenessAndReceivingScoresReducedReg, sum(RBReduced[i, RBAwarenessAndReceivingGroupReducedReg]*RBAwarenessAndReceivingGroupWeightsReducedReg)/sum(RBAwarenessAndReceivingGroupWeightsReducedReg))
+  RBPowerRunningScoresReducedReg = append(RBPowerRunningScoresReducedReg, sum(RBReduced[i, RBPowerRunningGroupReducedReg]*RBPowerRunningGroupWeightsReducedReg)/sum(RBPowerRunningGroupWeightsReducedReg))
+  RBClusterReducedReg[i, 1] = RBOVRReducedReg[i]
+  RBClusterReducedReg[i, 2] = RBSpeedRunningScoresReducedReg[i]
+  RBClusterReducedReg[i, 3] = RBAwarenessAndReceivingScoresReducedReg[i]
+  RBClusterReducedReg[i, 4] = RBPowerRunningScoresReducedReg[i]
+}
+RBClusterReducedReg = data.frame(RBClusterReducedReg)
+rownames(RBClusterReducedReg) = do.call(paste, c(MaddenRBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(RBClusterReducedReg) = c("Overall", "Speed Running", "Awareness And Receiving", "Power Running")
+
+RBClusterReducedRegNoOverall = RBClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+RBSpeedRunningGroupReducedNorm = c(2, 3, 5, 10, 14) 
+RBAwarenessAndReceivingGroupReducedNorm = c(6, 7, 11, 13, 15)
+RBPowerRunningGroupReducedNorm = c(4, 8, 9, 12)
+RBSpeedRunningGroupWeightsReducedNorm = c(11.25, 4.941, 11.98, 26.16, 8.773)
+RBAwarenessAndReceivingGroupWeightsReducedNorm = c(41.24, 4.510, 20.41, 6.543, 3.868)
+RBPowerRunningGroupWeightsReducedNorm = c(5.117, 20.51, 33.78, 7.580)
+
+RBSpeedRunningScoresReducedNorm = c()
+RBAwarenessAndReceivingScoresReducedNorm = c()
+RBPowerRunningScoresReducedNorm = c()
+
+
+RBClusterReducedNorm = matrix(0, nrow = length(RBNormReduced[,1]), ncol = 3)
+RBClusterReducedNormtemp = RBClusterReducedNorm
+for (i in 1: length(RBNormReduced[,1])) {
+  RBSpeedRunningScoresReducedNorm = append(RBSpeedRunningScoresReducedNorm, sum(RBNormReduced[i, RBSpeedRunningGroupReducedNorm]*RBSpeedRunningGroupWeightsReducedNorm)/sum(RBSpeedRunningGroupWeightsReducedNorm))
+  RBAwarenessAndReceivingScoresReducedNorm = append(RBAwarenessAndReceivingScoresReducedNorm, sum(RBNormReduced[i, RBAwarenessAndReceivingGroupReducedNorm]*RBAwarenessAndReceivingGroupWeightsReducedNorm)/sum(RBAwarenessAndReceivingGroupWeightsReducedNorm))
+  RBPowerRunningScoresReducedNorm = append(RBPowerRunningScoresReducedNorm, sum(RBNormReduced[i, RBPowerRunningGroupReducedNorm]*RBPowerRunningGroupWeightsReducedNorm)/sum(RBPowerRunningGroupWeightsReducedNorm))
+  RBClusterReducedNormtemp[i, 1] = RBSpeedRunningScoresReducedNorm[i]
+  RBClusterReducedNormtemp[i, 2] = RBAwarenessAndReceivingScoresReducedNorm[i]
+  RBClusterReducedNormtemp[i, 3] = RBPowerRunningScoresReducedNorm[i]
+}
+
+RBClusterReducedNormtemp = data.frame(RBClusterReducedNormtemp)
+
+RBrowadjclusterReducedNorm = length(RBClusterReducedNorm[1,])
+for (i in 1:length(RBClusterReducedNormtemp)) {
+  for (j in 1:length(RBClusterReducedNormtemp[,1])) {
+  RBClusterReducedNorm[j, i] = RBClusterReducedNormtemp[j, i]-(sum(RBClusterReducedNormtemp[j,])/RBrowadjclusterReducedNorm)
+  }
+}
+
+RBClusterReducedNorm = data.frame(RBClusterReducedNorm, row.names = do.call(paste, c(MaddenRBs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(RBClusterReducedNorm) = c("Speed Running ", "Awareness And Receiving", "Power Running")
+
+# This clusters the players 
+
+RBnclusters = 5
+
+set.seed(1)
+RBkz = kmeans(RBzscores, RBnclusters)
+set.seed(1)
+RBNormkz = kmeans(RBNormzscores, RBnclusters)
+set.seed(1)
+RBkreduced = kmeans(RBReduced, RBnclusters)
+set.seed(1)
+RBNormkreduced = kmeans(RBNormReduced, RBnclusters)
+
+set.seed(1)
+RBkclusterReducedReg = kmeans(RBClusterReducedReg, RBnclusters)
+set.seed(1)
+RBkclusterReducedNorm = kmeans(RBClusterReducedNorm, RBnclusters)
+set.seed(1)
+RBkclusterFullReg = kmeans(RBClusterFullReg, RBnclusters)
+set.seed(1)
+RBkclusterFullNorm = kmeans(RBClusterFullNorm, RBnclusters)
+
+
+clusplot(RBzscores, RBkz$cluster, lines=0, labels=2, cex=0.75)
+RBkz$centers
+clusplot(RBNormzscores, RBNormkz$cluster, lines=0, labels=2, cex=0.75)
+RBNormkz$centers
+clusplot(RBReduced, RBkreduced$cluster, lines=0, labels=2, cex=0.75)
+RBkreduced$centers
+clusplot(RBNormReduced, RBNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+RBNormkreduced$centers
+
+clusplot(RBClusterReducedReg, RBkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+RBkclusterReducedReg$centers
+clusplot(RBClusterReducedNorm, RBkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+RBkclusterReducedNorm$centers
+clusplot(RBClusterFullReg, RBkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+RBkclusterFullReg$centers
+clusplot(RBClusterFullNorm, RBkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+RBkclusterFullNorm$centers
+
+```
+Notes: Keep 2, 3, 5, 6, 8, 9, 10, 11, 21, 22
+
+so we have the clusters - i think we have a baseline weight based on correlation that we then adjust based on each cluster based on the thing with norms.
+
+```{r, echo=FALSE}
+RBClusterReducedNorm
+RBClusterFullNorm
+RBkclusterReducedNorm
+RBkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+RBreducedmetafit <- lm(RBClusterReducedReg[,1] ~ RBClusterReducedReg[,2] + RBClusterReducedReg[,3] + RBClusterReducedReg[,4], data = RBClusterReducedReg)
+summary(RBreducedmetafit)
+RBunreducedmetafit <- lm(RBClusterFullReg[,1] ~ RBClusterFullReg[,2] + RBClusterFullReg[,3] + RBClusterFullReg[,4] + RBClusterFullReg[,5] + RBClusterFullReg[,6], data = RBClusterFullReg)
+summary(RBunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+RBstandardreducedweights = c(63.11, 76.57, 66.99)
+RBstandardreducedweights = RBstandardreducedweights/sum(RBstandardreducedweights)
+
+RBstandardunreducedweights = c(7.371, 40.89, 67.02, 55.64, 35.09)
+RBstandardunreducedweights = RBstandardunreducedweights/sum(RBstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+RBclusterreducedweights = normalizealldataframe(pnorm(RBkclusterReducedNorm$centers))
+RBclusterunreducedweights = normalizealldataframe(pnorm(RBkclusterFullNorm$centers))
+
+RBadjustedreducedweights = RBclusterreducedweights
+RBadjustedunreducedweights = RBclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  RBadjustedreducedweights[i,] = normalizetolength(RBstandardreducedweights+RBclusterreducedweights[i,])
+  RBadjustedunreducedweights[i,] = normalizetolength(RBstandardunreducedweights+RBclusterunreducedweights[i,])
+}
+
+RBTotalScoresReduced = RBClusterReducedRegNoOverall
+RBTotalScoresUnreduced = RBClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(RBOriginal[,1])) {
+  for (j in 1:5) {
+    RBTotalScoresReduced[i, j] = 100*pnorm(sum(RBClusterReducedRegNoOverall[i,]*RBadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(RBOriginal[,1])) {
+  for (j in 1:5) {
+    RBTotalScoresUnreduced[i, j] = 100*pnorm(sum(RBClusterFullRegNoOverall[i,]*RBadjustedunreducedweights[j,]))
+  }
+}
+
+RBkclusterFullNorm$centers
+RBkclusterReducedNorm$centers
+
+colnames(RBTotalScoresUnreduced) = c("Pure Speed Back", "Backfield Receiver", "Balanced RB", "Goal Line Back", "Power Running Back")
+colnames(RBTotalScoresReduced) = c("Balanced RB", "Backfield Receiver", "Pure Speed Back", "Power Running Back", "Goal Line Back")
+
+RBTotalScoresReduced
+RBTotalScoresUnreduced
+
+RBTotalScoresReducedwithOVR = RBTotalScoresReduced
+RBTotalScoresUnreducedwithOVR = RBTotalScoresUnreduced
+
+RBTotalScoresReducedwithOVR[,6] = RBOriginal[,1]
+RBTotalScoresUnreducedwithOVR[,6] = RBOriginal[,1]
+
+```

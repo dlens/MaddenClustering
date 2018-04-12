@@ -1,0 +1,442 @@
+---
+title: "Kickers_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the PK attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenPKs = subset(MaddenAllPlayers, Position == "K")
+PKAttributes = c(6:11, 14:19, 25:27)
+PKOriginal = MaddenPKs[PKAttributes]
+rownames(PKOriginal) = do.call(paste, c(MaddenPKs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+PKmeans = c()
+PKsds = c()
+PKzscores = matrix(0, nrow = length(PKOriginal[,1]), ncol = length(PKOriginal))
+for (i in 1:length(PKOriginal)) {
+  PKmeans = append(PKmeans, mean(PKOriginal[,i]))
+  PKsds = append(PKsds, sd(PKOriginal[,i])*sqrt((length(PKOriginal[,i])-1)/(length(PKOriginal[,i]))))
+  for (j in 1:length(PKOriginal[,i])) {
+    PKzscores[j,i] = (PKOriginal[j,i]-PKmeans[i])/PKsds[i]
+  }
+}
+PKzscores = data.frame(PKzscores)
+rownames(PKzscores) = do.call(paste, c(MaddenPKs[c("First.Name", "Last.Name")], sep = " "))
+colnames(PKzscores) = colnames(PKOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+PKNormzscores = PKzscores[,-1]
+PKrowadjz = length(PKNormzscores[1,])
+for (i in 1:length(PKNormzscores)) {
+  for (j in 1:length(PKNormzscores[,1])) {
+  PKNormzscores[j, i] = PKzscores[j, i+1]-(sum(PKzscores[j,])/PKrowadjz)
+  }
+}
+PKNormzscores = data.frame(PKNormzscores)
+rownames(PKNormzscores) = do.call(paste, c(MaddenPKs[c("First.Name", "Last.Name")], sep = " "))
+colnames(PKNormzscores) = colnames(PKzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+PKover = PKzscores[,1]
+
+PKfit <- lm(PKover ~ PKzscores[,2] + PKzscores[,3] + PKzscores[,4] + PKzscores[,5] + PKzscores[,6] + PKzscores[,7] + PKzscores[,8] + PKzscores[,9] + PKzscores[,10] + PKzscores[,11] + PKzscores[,12] + PKzscores[,13] + PKzscores[,14] + PKzscores[,15], data = PKzscores)
+summary(PKfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+PKReduced = PKzscores[,c(1, 6, 11, 12)]
+PKreducedfit <- lm(PKover ~ PKReduced[,2] + PKReduced[,3] + PKReduced[,4], data = PKReduced)
+summary(PKreducedfit)
+
+# This normalizes the reduced criteria
+
+PKNormReduced = PKNormzscores[,c(5, 10, 11)]
+PKNormReducePKemp = PKNormReduced
+PKrowadjreduced = length(PKNormReduced[1,])
+for (i in 1:length(PKNormReduced)) {
+  for (j in 1:length(PKNormzscores[,1])) {
+  PKNormReduced[j, i] = PKNormReducePKemp[j, i]-(sum(PKNormReducePKemp[j,])/PKrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+PKreducedcovar = cov(PKReduced[,-1])
+
+PKcovar = cov(PKOriginal[,-1])
+
+set.seed(1)
+PKreducedcriteriaclusters = kmeans(PKreducedcovar, 2)
+set.seed(1)
+PKcriteriaclusters = kmeans(PKcovar, 4)
+clusplot(PKreducedcovar, PKreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(PKcovar, PKcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+PKcriteriaclusters
+PKreducedcriteriaclusters
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Athleticism (Speed, Acceleration, Strength, Agility, Throw Power, Toughness)
+# Cluster 2: Awareness (Awareness)
+# Cluster 3: Throwing (Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep)
+# Cluster 4: Kicking (Kick Power, Kick Accuracy, Injury, Stamina)
+# Cluster 5: NA
+
+# Reduced
+# Cluster 1: Kick Power (Kick Power)
+# Cluster 2: Kick Accuracy (Awareness, Kick Accuracy)
+# Cluster 3: NA
+
+PKAthleticismGroupFullReg = c(2, 3, 4, 5, 7, 15)
+PKAwarenessGroupFullReg = c(6)
+PKThrowingGroupFullReg = c(8, 9, 10)
+PKKickingGroupFullReg = c(11, 12, 13, 14)
+
+summary(PKfit)
+
+PKcriteriaclusters
+
+PKAthleticismGroupWeightsFullReg = c(0.05882, 9.112, 0, 0, 0, 4.335)
+PKAwarenessGroupWeightsFullReg = c(627.9)
+PKThrowingGroupWeightsFullReg = c(21.15, 26.55, 0)
+PKKickingGroupWeightsFullReg = c(159.4, 474.3, 5.911, 0)
+
+PKAthleticismGroupWeightsFullReg[]/sum(PKAthleticismGroupWeightsFullReg)
+PKAwarenessGroupWeightsFullReg[]/sum(PKAwarenessGroupWeightsFullReg)
+PKThrowingGroupWeightsFullReg[]/sum(PKThrowingGroupWeightsFullReg)
+PKKickingGroupWeightsFullReg[]/sum(PKKickingGroupWeightsFullReg)
+
+PKOVRFullReg = c()
+PKAthleticismScoresFullReg = c()
+PKAwarenessScoresFullReg = c()
+PKThrowingScoresFullReg = c()
+PKKickingScoresFullReg = c()
+
+PKClusterFullReg = matrix(0, nrow = length(PKOriginal[,1]), ncol = 5)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(PKzscores[,1])) {
+  PKOVRFullReg = append(PKOVRFullReg, PKzscores[i, 1])
+  PKAthleticismScoresFullReg = append(PKAthleticismScoresFullReg, sum(PKzscores[i, PKAthleticismGroupFullReg]*PKAthleticismGroupWeightsFullReg)/sum(PKAthleticismGroupWeightsFullReg))
+  PKAwarenessScoresFullReg = append(PKAwarenessScoresFullReg, sum(PKzscores[i, PKAwarenessGroupFullReg]*PKAwarenessGroupWeightsFullReg)/sum(PKAwarenessGroupWeightsFullReg))
+  PKThrowingScoresFullReg = append(PKThrowingScoresFullReg, sum(PKzscores[i, PKThrowingGroupFullReg]*PKThrowingGroupWeightsFullReg)/sum(PKThrowingGroupWeightsFullReg))
+  PKKickingScoresFullReg = append(PKKickingScoresFullReg, sum(PKzscores[i, PKKickingGroupFullReg]*PKKickingGroupWeightsFullReg)/sum(PKKickingGroupWeightsFullReg))
+  PKClusterFullReg[i, 1] = PKOVRFullReg[i]
+  PKClusterFullReg[i, 2] = PKAthleticismScoresFullReg[i]
+  PKClusterFullReg[i, 3] = PKAwarenessScoresFullReg[i]
+  PKClusterFullReg[i, 4] = PKThrowingScoresFullReg[i]
+  PKClusterFullReg[i, 5] = PKKickingScoresFullReg[i]
+}
+PKClusterFullReg = data.frame(PKClusterFullReg)
+rownames(PKClusterFullReg) = do.call(paste, c(MaddenPKs[c("First.Name", "Last.Name")], sep = " "))
+colnames(PKClusterFullReg) = c("Overall", "Athleticism", "Awareness", "Throwing", "Kicking")
+
+PKClusterFullRegNoOverall = PKClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+PKAthleticismGroupFullNorm = PKAthleticismGroupFullReg-1
+PKAwarenessGroupFullNorm = PKAwarenessGroupFullReg-1
+PKThrowingGroupFullNorm = PKThrowingGroupFullReg-1
+PKKickingGroupFullNorm = PKKickingGroupFullReg-1
+
+PKAthleticismGroupWeightsFullNorm = PKAthleticismGroupWeightsFullReg
+PKAwarenessGroupWeightsFullNorm = PKAwarenessGroupWeightsFullReg
+PKThrowingGroupWeightsFullNorm = PKThrowingGroupWeightsFullReg
+PKKickingGroupWeightsFullNorm = PKKickingGroupWeightsFullReg
+
+PKAthleticismScoresFullNorm = c()
+PKAwarenessScoresFullNorm = c()
+PKThrowingScoresFullNorm = c()
+PKKickingScoresFullNorm = c()
+
+PKClusterFullNorm = matrix(0, nrow = length(PKOriginal[,1]), ncol = 4)
+PKClusterFullNormtemp = PKClusterFullNorm
+
+
+for (i in 1: length(PKNormzscores[,1])) {
+  PKAthleticismScoresFullNorm = append(PKAthleticismScoresFullNorm, sum(PKNormzscores[i, PKAthleticismGroupFullNorm]*PKAthleticismGroupWeightsFullNorm)/sum(PKAthleticismGroupWeightsFullNorm))
+  PKAwarenessScoresFullNorm = append(PKAwarenessScoresFullNorm, sum(PKNormzscores[i, PKAwarenessGroupFullNorm]*PKAwarenessGroupWeightsFullNorm)/sum(PKAwarenessGroupWeightsFullNorm))
+  PKThrowingScoresFullNorm = append(PKThrowingScoresFullNorm, sum(PKNormzscores[i, PKThrowingGroupFullNorm]*PKThrowingGroupWeightsFullNorm)/sum(PKThrowingGroupWeightsFullNorm))
+  PKKickingScoresFullNorm = append(PKKickingScoresFullNorm, sum(PKNormzscores[i, PKKickingGroupFullNorm]*PKKickingGroupWeightsFullNorm)/sum(PKKickingGroupWeightsFullNorm))
+  PKClusterFullNormtemp[i, 1] = PKAthleticismScoresFullNorm[i]
+  PKClusterFullNormtemp[i, 2] = PKAwarenessScoresFullNorm[i]
+  PKClusterFullNormtemp[i, 3] = PKThrowingScoresFullNorm[i]
+  PKClusterFullNormtemp[i, 4] = PKKickingScoresFullNorm[i]
+}
+
+PKClusterFullNormtemp = data.frame(PKClusterFullNormtemp)
+
+PKrowadjclusterFullNorm = length(PKClusterFullNorm[1,])
+for (i in 1:length(PKClusterFullNormtemp)) {
+  for (j in 1:length(PKClusterFullNormtemp[,1])) {
+  PKClusterFullNorm[j, i] = PKClusterFullNormtemp[j, i]-(sum(PKClusterFullNormtemp[j,])/PKrowadjclusterFullNorm)
+  }
+}
+
+PKClusterFullNorm = data.frame(PKClusterFullNorm)
+rownames(PKClusterFullNorm) = do.call(paste, c(MaddenPKs[c("First.Name", "Last.Name")], sep = " "))
+colnames(PKClusterFullNorm) = c("Athleticism", "Awareness", "Throwing", "Kicking")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Kick Power (Kick Power)
+# Cluster 2: Kick Accuracy (Awareness, Kick Accuracy)
+# Cluster 3: NA
+
+PKKickPowerGroupReducedReg = c(3)
+PKKickAccuracyGroupReducedReg = c(2, 4)
+
+summary(PKreducedfit)
+
+PKreducedcriteriaclusters
+
+PKKickPowerGroupWeightsReducedReg = c(165.2)
+PKKickAccuracyGroupWeightsReducedReg = c(618.5, 476.4)
+
+PKKickPowerGroupWeightsReducedReg[]/sum(PKKickPowerGroupWeightsReducedReg)
+PKKickAccuracyGroupWeightsReducedReg[]/sum(PKKickAccuracyGroupWeightsReducedReg)
+
+PKOVRReducedReg = c()
+PKKickPowerScoresReducedReg = c()
+PKKickAccuracyScoresReducedReg = c()
+
+PKClusterReducedReg = matrix(0, nrow = length(PKOriginal[,1]), ncol = 3)
+
+for (i in 1: length(PKReduced[,1])) {
+  PKOVRReducedReg = append(PKOVRReducedReg, PKReduced[i, 1])
+  PKKickPowerScoresReducedReg = append(PKKickPowerScoresReducedReg, sum(PKReduced[i, PKKickPowerGroupReducedReg]*PKKickPowerGroupWeightsReducedReg)/sum(PKKickPowerGroupWeightsReducedReg))
+  PKKickAccuracyScoresReducedReg = append(PKKickAccuracyScoresReducedReg, sum(PKReduced[i, PKKickAccuracyGroupReducedReg]*PKKickAccuracyGroupWeightsReducedReg)/sum(PKKickAccuracyGroupWeightsReducedReg))
+  PKClusterReducedReg[i, 1] = PKOVRReducedReg[i]
+  PKClusterReducedReg[i, 2] = PKKickPowerScoresReducedReg[i]
+  PKClusterReducedReg[i, 3] = PKKickAccuracyScoresReducedReg[i]
+}
+
+PKClusterReducedReg = data.frame(PKClusterReducedReg)
+rownames(PKClusterReducedReg) = do.call(paste, c(MaddenPKs[c("First.Name", "Last.Name")], sep = " "))
+colnames(PKClusterReducedReg) = c("Overall", "Kick Power", "Kick Accuracy")
+
+
+PKClusterReducedRegNoOverall = PKClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+PKKickPowerGroupReducedNorm = PKKickPowerGroupReducedReg - 1
+PKKickAccuracyGroupReducedNorm = PKKickAccuracyGroupReducedReg - 1
+
+PKKickPowerGroupWeightsReducedNorm = PKKickPowerGroupWeightsReducedReg
+PKKickAccuracyGroupWeightsReducedNorm = PKKickAccuracyGroupWeightsReducedReg
+
+PKKickPowerScoresReducedNorm = c()
+PKKickAccuracyScoresReducedNorm = c()
+
+
+PKClusterReducedNorm = matrix(0, nrow = length(PKNormReduced[,1]), ncol = 2)
+PKClusterReducedNormtemp = PKClusterReducedNorm
+for (i in 1: length(PKNormReduced[,1])) {
+  PKKickPowerScoresReducedNorm = append(PKKickPowerScoresReducedNorm, sum(PKNormReduced[i, PKKickPowerGroupReducedNorm]*PKKickPowerGroupWeightsReducedNorm)/sum(PKKickPowerGroupWeightsReducedNorm))
+  PKKickAccuracyScoresReducedNorm = append(PKKickAccuracyScoresReducedNorm, sum(PKNormReduced[i, PKKickAccuracyGroupReducedNorm]*PKKickAccuracyGroupWeightsReducedNorm)/sum(PKKickAccuracyGroupWeightsReducedNorm))
+  PKClusterReducedNormtemp[i, 1] = PKKickPowerScoresReducedNorm[i]
+  PKClusterReducedNormtemp[i, 2] = PKKickAccuracyScoresReducedNorm[i]
+}
+
+PKClusterReducedNormtemp = data.frame(PKClusterReducedNormtemp)
+
+PKrowadjclusterReducedNorm = length(PKClusterReducedNorm[1,])
+for (i in 1:length(PKClusterReducedNormtemp)) {
+  for (j in 1:length(PKClusterReducedNormtemp[,1])) {
+  PKClusterReducedNorm[j, i] = PKClusterReducedNormtemp[j, i]-(sum(PKClusterReducedNormtemp[j,])/PKrowadjclusterReducedNorm)
+  }
+}
+
+
+PKClusterReducedNorm = data.frame(PKClusterReducedNorm, row.names = do.call(paste, c(MaddenPKs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(PKClusterReducedNorm) = c("Kick Power", "Kick Accuracy")
+
+# This clusters the players 
+
+PKnclusters = 3
+
+set.seed(1)
+PKkz = kmeans(PKzscores, PKnclusters)
+set.seed(1)
+PKNormkz = kmeans(PKNormzscores, PKnclusters)
+set.seed(1)
+PKkreduced = kmeans(PKReduced, PKnclusters)
+set.seed(1)
+PKNormkreduced = kmeans(PKNormReduced, PKnclusters)
+
+set.seed(1)
+PKkclusterReducedReg = kmeans(PKClusterReducedReg, PKnclusters)
+set.seed(1)
+PKkclusterReducedNorm = kmeans(PKClusterReducedNorm, PKnclusters)
+set.seed(1)
+PKkclusterFullReg = kmeans(PKClusterFullReg, PKnclusters)
+set.seed(1)
+PKkclusterFullNorm = kmeans(PKClusterFullNorm, PKnclusters)
+
+
+clusplot(PKzscores, PKkz$cluster, lines=0, labels=2, cex=0.75)
+PKkz$centers
+clusplot(PKNormzscores, PKNormkz$cluster, lines=0, labels=2, cex=0.75)
+PKNormkz$centers
+clusplot(PKReduced, PKkreduced$cluster, lines=0, labels=2, cex=0.75)
+PKkreduced$centers
+clusplot(PKNormReduced, PKNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+PKNormkreduced$centers
+
+clusplot(PKClusterReducedReg, PKkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+PKkclusterReducedReg$centers
+clusplot(PKClusterReducedNorm, PKkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+PKkclusterReducedNorm$centers
+clusplot(PKClusterFullReg, PKkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+PKkclusterFullReg$centers
+clusplot(PKClusterFullNorm, PKkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+PKkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 POWER PK
+# Cluster 2 ACCURACY PK
+# Cluster 3 BALANCED PK
+# Cluster 4 NA
+# Cluster 5 NA
+
+# Full Norm
+# Cluster 1 STRONG LEG PK
+# Cluster 2 BALANCED PK
+# Cluster 3 ATHLETIC PK
+# Cluster 4 NA
+# Cluster 5 NA
+
+PKClusterReducedNorm
+PKClusterFullNorm
+PKkclusterReducedNorm
+PKkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+PKreducedmetafit <- lm(PKClusterReducedReg[,1] ~ PKClusterReducedReg[,2] + PKClusterReducedReg[,3], data = PKClusterReducedReg)
+summary(PKreducedmetafit)
+PKunreducedmetafit <- lm(PKClusterFullReg[,1] ~ PKClusterFullReg[,2] + PKClusterFullReg[,3] + PKClusterFullReg[,4] + PKClusterFullReg[,5], data = PKClusterFullReg)
+summary(PKunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(PKreducedmetafit)
+
+PKstandardreducedweights = c(165.2, 1095)
+PKstandardreducedweights = PKstandardreducedweights/sum(PKstandardreducedweights)
+
+summary(PKunreducedmetafit)
+
+PKstandardunreducedweights = c(12.10, 627.2, 0, 641.2)
+PKstandardunreducedweights = PKstandardunreducedweights/sum(PKstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+PKclusterreducedweights = normalizealldataframe(pnorm(PKkclusterReducedNorm$centers))
+PKclusterunreducedweights = normalizealldataframe(pnorm(PKkclusterFullNorm$centers))
+
+PKadjustedreducedweights = PKclusterreducedweights
+PKadjustedunreducedweights = PKclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:PKnclusters) {
+  PKadjustedreducedweights[i,] = normalizetolength(PKstandardreducedweights+PKclusterreducedweights[i,])
+  PKadjustedunreducedweights[i,] = normalizetolength(PKstandardunreducedweights+PKclusterunreducedweights[i,])
+}
+
+PKTotalScoresReduced = PKClusterReducedRegNoOverall
+PKTotalScoresUnreduced = PKClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(PKOriginal[,1])) {
+  for (j in 1:PKnclusters) {
+    PKTotalScoresReduced[i, j] = 100*pnorm(sum(PKClusterReducedRegNoOverall[i,]*PKadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(PKOriginal[,1])) {
+  for (j in 1:PKnclusters) {
+    PKTotalScoresUnreduced[i, j] = 100*pnorm(sum(PKClusterFullRegNoOverall[i,]*PKadjustedunreducedweights[j,]))
+  }
+}
+
+PKkclusterFullNorm$centers
+PKkclusterReducedNorm$centers
+
+# Reduced Norm
+# Cluster 1 POWER PK
+# Cluster 2 ACCURACY PK
+# Cluster 3 BALANCED PK
+# Cluster 4 NA
+# Cluster 5 NA
+
+# Full Norm
+# Cluster 1 STRONG LEG PK
+# Cluster 2 BALANCED PK
+# Cluster 3 ATHLETIC PK
+# Cluster 4 NA
+# Cluster 5 NA
+
+colnames(PKTotalScoresReduced) = c("Power PK", "Accuracy PK", "Balanced PK")
+colnames(PKTotalScoresUnreduced) = c("Strong Leg PK", "Balanced PK", "Athletic PK")
+
+PKkclusterFullNorm$centers
+PKTotalScoresUnreduced
+PKkclusterReducedNorm$centers
+PKTotalScoresReduced
+
+
+PKTotalScoresReducedwithOVR = PKTotalScoresReduced
+PKTotalScoresUnreducedwithOVR = PKTotalScoresUnreduced
+
+PKTotalScoresReducedwithOVR[,4] = PKOriginal[,1]
+PKTotalScoresUnreducedwithOVR[,4] = PKOriginal[,1]
+
+PKTotalScoresReducedwithOVR
+PKTotalScoresUnreducedwithOVR
+
+PKstandardunreducedweights
+PKadjustedunreducedweights
+PKstandardreducedweights
+PKadjustedreducedweights
+
+
+```

@@ -1,0 +1,459 @@
+---
+title: "Outside_Linebackers_With_Overall"
+output: html_document
+---
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the OLB attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenOLBs = subset(MaddenAllPlayers, Position == "LOLB" | Position == "ROLB")
+OLBAttributes = c(6:11, 22, 25:27, 35:41, 45)
+OLBOriginal = MaddenOLBs[OLBAttributes]
+rownames(OLBOriginal) = do.call(paste, c(MaddenOLBs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+OLBmeans = c()
+OLBsds = c()
+OLBzscores = matrix(0, nrow = length(OLBOriginal[,1]), ncol = length(OLBOriginal))
+for (i in 1:length(OLBOriginal)) {
+  OLBmeans = append(OLBmeans, mean(OLBOriginal[,i]))
+  OLBsds = append(OLBsds, sd(OLBOriginal[,i])*sqrt((length(OLBOriginal[,i])-1)/(length(OLBOriginal[,i]))))
+  for (j in 1:length(OLBOriginal[,i])) {
+    OLBzscores[j,i] = (OLBOriginal[j,i]-OLBmeans[i])/OLBsds[i]
+  }
+}
+OLBzscores = data.frame(OLBzscores)
+rownames(OLBzscores) = do.call(paste, c(MaddenOLBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OLBzscores) = colnames(OLBOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+OLBNormzscores = OLBzscores[,-1]
+OLBrowadjz = length(OLBNormzscores[1,])
+for (i in 1:length(OLBNormzscores)) {
+  for (j in 1:length(OLBNormzscores[,1])) {
+  OLBNormzscores[j, i] = OLBzscores[j, i+1]-(sum(OLBzscores[j,])/OLBrowadjz)
+  }
+}
+OLBNormzscores = data.frame(OLBNormzscores)
+rownames(OLBNormzscores) = do.call(paste, c(MaddenOLBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OLBNormzscores) = colnames(OLBzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+OLBover = OLBzscores[,1]
+
+OLBfit <- lm(OLBover ~ OLBzscores[,2] + OLBzscores[,3] + OLBzscores[,4] + OLBzscores[,5] + OLBzscores[,6] + OLBzscores[,7] + OLBzscores[,8] + OLBzscores[,9] + OLBzscores[,10] + OLBzscores[,11] + OLBzscores[,12] + OLBzscores[,13] + OLBzscores[,14] + OLBzscores[,15] + OLBzscores[,16] + OLBzscores[,17] + OLBzscores[,18], data = OLBzscores)
+summary(OLBfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+OLBReduced = OLBzscores[,c(1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18)]
+OLBreducedfit <- lm(OLBover ~ OLBReduced[,2] + OLBReduced[,3] + OLBReduced[,4] + OLBReduced[,5] + OLBReduced[,6] + OLBReduced[,7] + OLBReduced[,8] + OLBReduced[,9] + OLBReduced[,10] + OLBReduced[,11] + OLBReduced[,12] + OLBReduced[,13] + OLBReduced[,14] + OLBReduced[,15], data = OLBReduced)
+summary(OLBreducedfit)
+
+# This normalizes the reduced criteria
+
+OLBNormReduced = OLBNormzscores[,c(1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14, 15, 16, 17)]
+OLBNormReduceOLBemp = OLBNormReduced
+OLBrowadjreduced = length(OLBNormReduced[1,])
+for (i in 1:length(OLBNormReduced)) {
+  for (j in 1:length(OLBNormzscores[,1])) {
+  OLBNormReduced[j, i] = OLBNormReduceOLBemp[j, i]-(sum(OLBNormReduceOLBemp[j,])/OLBrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+OLBreducedcovar = cov(OLBReduced[,-1])
+
+OLBcovar = cov(OLBOriginal[,-1])
+
+set.seed(1)
+OLBreducedcriteriaclusters = kmeans(OLBreducedcovar, 3)
+set.seed(1)
+OLBcriteriaclusters = kmeans(OLBcovar, 5)
+clusplot(OLBreducedcovar, OLBreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(OLBcovar, OLBcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Awareness (Awareness, Play Recognition)
+# Cluster 2: Tackling And Coverage (Tackle, Stamina, Pursuit, Man Coverage, Zone Coverage)
+# Cluster 3: Power (Strength, Toughness, Power Moves, Block Shedding, Hit Power)
+# Cluster 4: Finesse Pass Rushing (Finesse Moves)
+# Cluster 5: Speed (Speed, Acceleration, Agility, Injury)
+
+# Reduced
+# Cluster 1: Speed And Coverage (Speed, Acceleration, Agility, Man Coverage, Zone Coverage)
+# Cluster 2: Awareness And Tackling (Awareness, Tackle, Pursuit, Play Recognition)
+# Cluster 3: Power And Pass Rushing (Strength, Power Moves, Finesse Moves, Hit Power)
+
+OLBAwarenessGroupFullReg = c(6, 15)
+OLBTacklingAndCoverageGroupFullReg = c(7, 9, 14, 16, 17)
+OLBPowerGroupFullReg = c(4, 10, 11, 13, 18)
+OLBFinessePassRushingGroupFullReg = c(12)
+OLBSpeedGroupFullReg = c(2, 3, 5, 8)
+
+summary(OLBfit)
+
+OLBcriteriaclusters
+
+OLBAwarenessGroupWeightsFullReg = c(392.2, 260.1)
+OLBTacklingAndCoverageGroupWeightsFullReg = c(126.9, 4.157, 70.58, 62.47, 95.82)
+OLBPowerGroupWeightsFullReg = c(64.23, 8.417, 172.2, 105.8, 39.36)
+OLBFinessePassRushingGroupWeightsFullReg = c(174.2)
+OLBSpeedGroupWeightsFullReg = c(72.76, 36.41, 33.75, 3.862)
+
+OLBAwarenessGroupWeightsFullReg[]/sum(OLBAwarenessGroupWeightsFullReg)
+OLBTacklingAndCoverageGroupWeightsFullReg[]/sum(OLBTacklingAndCoverageGroupWeightsFullReg)
+OLBPowerGroupWeightsFullReg[]/sum(OLBPowerGroupWeightsFullReg)
+OLBFinessePassRushingGroupWeightsFullReg[]/sum(OLBFinessePassRushingGroupWeightsFullReg)
+OLBSpeedGroupWeightsFullReg[]/sum(OLBSpeedGroupWeightsFullReg)
+
+OLBOVRFullReg = c()
+OLBAwarenessScoresFullReg = c()
+OLBTacklingAndCoverageScoresFullReg = c()
+OLBPowerScoresFullReg = c()
+OLBFinessePassRushingScoresFullReg = c()
+OLBSpeedScoresFullReg = c()
+
+OLBClusterFullReg = matrix(0, nrow = length(OLBOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(OLBzscores[,1])) {
+  OLBOVRFullReg = append(OLBOVRFullReg, OLBzscores[i, 1])
+  OLBAwarenessScoresFullReg = append(OLBAwarenessScoresFullReg, sum(OLBzscores[i, OLBAwarenessGroupFullReg]*OLBAwarenessGroupWeightsFullReg)/sum(OLBAwarenessGroupWeightsFullReg))
+  OLBTacklingAndCoverageScoresFullReg = append(OLBTacklingAndCoverageScoresFullReg, sum(OLBzscores[i, OLBTacklingAndCoverageGroupFullReg]*OLBTacklingAndCoverageGroupWeightsFullReg)/sum(OLBTacklingAndCoverageGroupWeightsFullReg))
+  OLBPowerScoresFullReg = append(OLBPowerScoresFullReg, sum(OLBzscores[i, OLBPowerGroupFullReg]*OLBPowerGroupWeightsFullReg)/sum(OLBPowerGroupWeightsFullReg))
+  OLBFinessePassRushingScoresFullReg = append(OLBFinessePassRushingScoresFullReg, sum(OLBzscores[i, OLBFinessePassRushingGroupFullReg]*OLBFinessePassRushingGroupWeightsFullReg)/sum(OLBFinessePassRushingGroupWeightsFullReg))
+  OLBSpeedScoresFullReg = append(OLBSpeedScoresFullReg, sum(OLBzscores[i, OLBSpeedGroupFullReg]*OLBSpeedGroupWeightsFullReg)/sum(OLBSpeedGroupWeightsFullReg))
+  OLBClusterFullReg[i, 1] = OLBOVRFullReg[i]
+  OLBClusterFullReg[i, 2] = OLBAwarenessScoresFullReg[i]
+  OLBClusterFullReg[i, 3] = OLBTacklingAndCoverageScoresFullReg[i]
+  OLBClusterFullReg[i, 4] = OLBPowerScoresFullReg[i]
+  OLBClusterFullReg[i, 5] = OLBFinessePassRushingScoresFullReg[i]
+  OLBClusterFullReg[i, 6] = OLBSpeedScoresFullReg[i]
+}
+OLBClusterFullReg = data.frame(OLBClusterFullReg)
+rownames(OLBClusterFullReg) = do.call(paste, c(MaddenOLBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OLBClusterFullReg) = c("Overall", "Awareness", "Tackling And Coverage", "Power", "Finesse Pass Rushing", "Speed")
+
+OLBClusterFullRegNoOverall = OLBClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+OLBAwarenessGroupFullNorm = OLBAwarenessGroupFullReg-1
+OLBTacklingAndCoverageGroupFullNorm = OLBTacklingAndCoverageGroupFullReg-1
+OLBPowerGroupFullNorm = OLBPowerGroupFullReg-1
+OLBFinessePassRushingGroupFullNorm = OLBFinessePassRushingGroupFullReg-1
+OLBSpeedGroupFullNorm = OLBSpeedGroupFullReg-1
+
+OLBAwarenessGroupWeightsFullNorm = OLBAwarenessGroupWeightsFullReg
+OLBTacklingAndCoverageGroupWeightsFullNorm = OLBTacklingAndCoverageGroupWeightsFullReg
+OLBPowerGroupWeightsFullNorm = OLBPowerGroupWeightsFullReg
+OLBFinessePassRushingGroupWeightsFullNorm = OLBFinessePassRushingGroupWeightsFullReg
+OLBSpeedGroupWeightsFullNorm = OLBSpeedGroupWeightsFullReg
+
+OLBAwarenessScoresFullNorm = c()
+OLBTacklingAndCoverageScoresFullNorm = c()
+OLBPowerScoresFullNorm = c()
+OLBFinessePassRushingScoresFullNorm = c()
+OLBSpeedScoresFullNorm = c()
+
+OLBClusterFullNorm = matrix(0, nrow = length(OLBOriginal[,1]), ncol = 5)
+OLBClusterFullNormtemp = OLBClusterFullNorm
+
+
+for (i in 1: length(OLBNormzscores[,1])) {
+  OLBAwarenessScoresFullNorm = append(OLBAwarenessScoresFullNorm, sum(OLBNormzscores[i, OLBAwarenessGroupFullNorm]*OLBAwarenessGroupWeightsFullNorm)/sum(OLBAwarenessGroupWeightsFullNorm))
+  OLBTacklingAndCoverageScoresFullNorm = append(OLBTacklingAndCoverageScoresFullNorm, sum(OLBNormzscores[i, OLBTacklingAndCoverageGroupFullNorm]*OLBTacklingAndCoverageGroupWeightsFullNorm)/sum(OLBTacklingAndCoverageGroupWeightsFullNorm))
+  OLBPowerScoresFullNorm = append(OLBPowerScoresFullNorm, sum(OLBNormzscores[i, OLBPowerGroupFullNorm]*OLBPowerGroupWeightsFullNorm)/sum(OLBPowerGroupWeightsFullNorm))
+  OLBFinessePassRushingScoresFullNorm = append(OLBFinessePassRushingScoresFullNorm, sum(OLBNormzscores[i, OLBFinessePassRushingGroupFullNorm]*OLBFinessePassRushingGroupWeightsFullNorm)/sum(OLBFinessePassRushingGroupWeightsFullNorm))
+  OLBSpeedScoresFullNorm = append(OLBSpeedScoresFullNorm, sum(OLBNormzscores[i, OLBSpeedGroupFullNorm]*OLBSpeedGroupWeightsFullNorm)/sum(OLBSpeedGroupWeightsFullNorm))
+  OLBClusterFullNormtemp[i, 1] = OLBAwarenessScoresFullNorm[i]
+  OLBClusterFullNormtemp[i, 2] = OLBTacklingAndCoverageScoresFullNorm[i]
+  OLBClusterFullNormtemp[i, 3] = OLBPowerScoresFullNorm[i]
+  OLBClusterFullNormtemp[i, 4] = OLBFinessePassRushingScoresFullNorm[i]
+  OLBClusterFullNormtemp[i, 5] = OLBSpeedScoresFullNorm[i]
+}
+
+OLBClusterFullNormtemp = data.frame(OLBClusterFullNormtemp)
+
+OLBrowadjclusterFullNorm = length(OLBClusterFullNorm[1,])
+for (i in 1:length(OLBClusterFullNormtemp)) {
+  for (j in 1:length(OLBClusterFullNormtemp[,1])) {
+  OLBClusterFullNorm[j, i] = OLBClusterFullNormtemp[j, i]-(sum(OLBClusterFullNormtemp[j,])/OLBrowadjclusterFullNorm)
+  }
+}
+
+OLBClusterFullNorm = data.frame(OLBClusterFullNorm)
+rownames(OLBClusterFullNorm) = do.call(paste, c(MaddenOLBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OLBClusterFullNorm) = c("Awareness", "Tackling And Coverage", "Power", "Finesse Pass Rushing", "Speed")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Speed And Coverage (Speed, Acceleration, Agility, Man Coverage, Zone Coverage)
+# Cluster 2: Tackling And Awareness (Awareness, Tackle, Pursuit, Play Recognition)
+# Cluster 3: Power And Pass Rushing (Strength, Power Moves, Finesse Moves, Hit Power)
+
+OLBSpeedAndCoverageGroupReducedReg = c(2, 3, 5, 13, 14)
+OLBTacklingAndAwarenessGroupReducedReg = c(6, 7, 11, 12)
+OLBPowerAndPassRushingGroupReducedReg = c(4, 8, 9, 10, 15)
+
+summary(OLBreducedfit)
+
+OLBreducedcriteriaclusters
+
+OLBSpeedAndCoverageGroupWeightsReducedReg = c(72.44, 35.05, 34.69, 62.70, 95.52)
+OLBTacklingAndAwarenessGroupWeightsReducedReg = c(392.2, 128.7, 70.12, 264.9)
+OLBPowerAndPassRushingGroupWeightsReducedReg = c(64.50, 172.1, 172.5, 107.1, 40.39)
+
+OLBSpeedAndCoverageGroupWeightsReducedReg[]/sum(OLBSpeedAndCoverageGroupWeightsReducedReg)
+OLBTacklingAndAwarenessGroupWeightsReducedReg[]/sum(OLBTacklingAndAwarenessGroupWeightsReducedReg)
+OLBPowerAndPassRushingGroupWeightsReducedReg[]/sum(OLBPowerAndPassRushingGroupWeightsReducedReg)
+
+OLBOVRReducedReg = c()
+OLBSpeedAndCoverageScoresReducedReg = c()
+OLBTacklingAndAwarenessScoresReducedReg = c()
+OLBPowerAndPassRushingScoresReducedReg = c()
+
+OLBClusterReducedReg = matrix(0, nrow = length(OLBOriginal[,1]), ncol = 4)
+
+for (i in 1: length(OLBReduced[,1])) {
+  OLBOVRReducedReg = append(OLBOVRReducedReg, OLBReduced[i, 1])
+  OLBSpeedAndCoverageScoresReducedReg = append(OLBSpeedAndCoverageScoresReducedReg, sum(OLBReduced[i, OLBSpeedAndCoverageGroupReducedReg]*OLBSpeedAndCoverageGroupWeightsReducedReg)/sum(OLBSpeedAndCoverageGroupWeightsReducedReg))
+  OLBTacklingAndAwarenessScoresReducedReg = append(OLBTacklingAndAwarenessScoresReducedReg, sum(OLBReduced[i, OLBTacklingAndAwarenessGroupReducedReg]*OLBTacklingAndAwarenessGroupWeightsReducedReg)/sum(OLBTacklingAndAwarenessGroupWeightsReducedReg))
+  OLBPowerAndPassRushingScoresReducedReg = append(OLBPowerAndPassRushingScoresReducedReg, sum(OLBReduced[i, OLBPowerAndPassRushingGroupReducedReg]*OLBPowerAndPassRushingGroupWeightsReducedReg)/sum(OLBPowerAndPassRushingGroupWeightsReducedReg))
+  OLBClusterReducedReg[i, 1] = OLBOVRReducedReg[i]
+  OLBClusterReducedReg[i, 2] = OLBSpeedAndCoverageScoresReducedReg[i]
+  OLBClusterReducedReg[i, 3] = OLBTacklingAndAwarenessScoresReducedReg[i]
+  OLBClusterReducedReg[i, 4] = OLBPowerAndPassRushingScoresReducedReg[i]
+}
+OLBClusterReducedReg = data.frame(OLBClusterReducedReg)
+rownames(OLBClusterReducedReg) = do.call(paste, c(MaddenOLBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OLBClusterReducedReg) = c("Overall", "Speed And Coverage", "Tackling And Awareness", "Power And Pass Rushing")
+
+
+OLBClusterReducedRegNoOverall = OLBClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+OLBSpeedAndCoverageGroupReducedNorm = OLBSpeedAndCoverageGroupReducedReg - 1
+OLBTacklingAndAwarenessGroupReducedNorm = OLBTacklingAndAwarenessGroupReducedReg - 1
+OLBPowerAndPassRushingGroupReducedNorm = OLBPowerAndPassRushingGroupReducedReg - 1
+
+OLBSpeedAndCoverageGroupWeightsReducedNorm = OLBSpeedAndCoverageGroupWeightsReducedReg
+OLBTacklingAndAwarenessGroupWeightsReducedNorm = OLBTacklingAndAwarenessGroupWeightsReducedReg
+OLBPowerAndPassRushingGroupWeightsReducedNorm = OLBPowerAndPassRushingGroupWeightsReducedReg
+
+OLBSpeedAndCoverageScoresReducedNorm = c()
+OLBTacklingAndAwarenessScoresReducedNorm = c()
+OLBPowerAndPassRushingScoresReducedNorm = c()
+
+
+OLBClusterReducedNorm = matrix(0, nrow = length(OLBNormReduced[,1]), ncol = 3)
+OLBClusterReducedNormtemp = OLBClusterReducedNorm
+for (i in 1: length(OLBNormReduced[,1])) {
+  OLBSpeedAndCoverageScoresReducedNorm = append(OLBSpeedAndCoverageScoresReducedNorm, sum(OLBNormReduced[i, OLBSpeedAndCoverageGroupReducedNorm]*OLBSpeedAndCoverageGroupWeightsReducedNorm)/sum(OLBSpeedAndCoverageGroupWeightsReducedNorm))
+  OLBTacklingAndAwarenessScoresReducedNorm = append(OLBTacklingAndAwarenessScoresReducedNorm, sum(OLBNormReduced[i, OLBTacklingAndAwarenessGroupReducedNorm]*OLBTacklingAndAwarenessGroupWeightsReducedNorm)/sum(OLBTacklingAndAwarenessGroupWeightsReducedNorm))
+  OLBPowerAndPassRushingScoresReducedNorm = append(OLBPowerAndPassRushingScoresReducedNorm, sum(OLBNormReduced[i, OLBPowerAndPassRushingGroupReducedNorm]*OLBPowerAndPassRushingGroupWeightsReducedNorm)/sum(OLBPowerAndPassRushingGroupWeightsReducedNorm))
+  OLBClusterReducedNormtemp[i, 1] = OLBSpeedAndCoverageScoresReducedNorm[i]
+  OLBClusterReducedNormtemp[i, 2] = OLBTacklingAndAwarenessScoresReducedNorm[i]
+  OLBClusterReducedNormtemp[i, 3] = OLBPowerAndPassRushingScoresReducedNorm[i]
+}
+
+OLBClusterReducedNormtemp = data.frame(OLBClusterReducedNormtemp)
+
+OLBrowadjclusterReducedNorm = length(OLBClusterReducedNorm[1,])
+for (i in 1:length(OLBClusterReducedNormtemp)) {
+  for (j in 1:length(OLBClusterReducedNormtemp[,1])) {
+  OLBClusterReducedNorm[j, i] = OLBClusterReducedNormtemp[j, i]-(sum(OLBClusterReducedNormtemp[j,])/OLBrowadjclusterReducedNorm)
+  }
+}
+
+
+OLBClusterReducedNorm = data.frame(OLBClusterReducedNorm, row.names = do.call(paste, c(MaddenOLBs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(OLBClusterReducedNorm) = c("Speed And Coverage", "Tackling And Awareness", "Power And Pass Rushing")
+
+# This clusters the players 
+
+OLBnclusters = 5
+
+set.seed(1)
+OLBkz = kmeans(OLBzscores, OLBnclusters)
+set.seed(1)
+OLBNormkz = kmeans(OLBNormzscores, OLBnclusters)
+set.seed(1)
+OLBkreduced = kmeans(OLBReduced, OLBnclusters)
+set.seed(1)
+OLBNormkreduced = kmeans(OLBNormReduced, OLBnclusters)
+
+set.seed(1)
+OLBkclusterReducedReg = kmeans(OLBClusterReducedReg, OLBnclusters)
+set.seed(1)
+OLBkclusterReducedNorm = kmeans(OLBClusterReducedNorm, OLBnclusters)
+set.seed(1)
+OLBkclusterFullReg = kmeans(OLBClusterFullReg, OLBnclusters)
+set.seed(1)
+OLBkclusterFullNorm = kmeans(OLBClusterFullNorm, OLBnclusters)
+
+
+clusplot(OLBzscores, OLBkz$cluster, lines=0, labels=2, cex=0.75)
+OLBkz$centers
+clusplot(OLBNormzscores, OLBNormkz$cluster, lines=0, labels=2, cex=0.75)
+OLBNormkz$centers
+clusplot(OLBReduced, OLBkreduced$cluster, lines=0, labels=2, cex=0.75)
+OLBkreduced$centers
+clusplot(OLBNormReduced, OLBNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+OLBNormkreduced$centers
+
+clusplot(OLBClusterReducedReg, OLBkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+OLBkclusterReducedReg$centers
+clusplot(OLBClusterReducedNorm, OLBkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+OLBkclusterReducedNorm$centers
+clusplot(OLBClusterFullReg, OLBkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+OLBkclusterFullReg$centers
+clusplot(OLBClusterFullNorm, OLBkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+OLBkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 POWER RUSHING OLB
+# Cluster 2 BALANCED OLB
+# Cluster 3 COVERAGE TACKLING OLB
+# Cluster 4 SPEED RUSHING OLB
+# Cluster 5 STRONG TACKLING OLB
+
+# Full Norm
+# Cluster 1 BALANCED OLB
+# Cluster 2 POWER OLB
+# Cluster 3 COVERAGE TACKLING OLB
+# Cluster 4 SPEED RUSHING OLB
+# Cluster 5 FINESSE RUSHING OLB
+
+OLBClusterReducedNorm
+OLBClusterFullNorm
+OLBkclusterReducedNorm
+OLBkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+OLBreducedmetafit <- lm(OLBClusterReducedReg[,1] ~ OLBClusterReducedReg[,2] + OLBClusterReducedReg[,3] + OLBClusterReducedReg[,4], data = OLBClusterReducedReg)
+summary(OLBreducedmetafit)
+OLBunreducedmetafit <- lm(OLBClusterFullReg[,1] ~ OLBClusterFullReg[,2] + OLBClusterFullReg[,3] + OLBClusterFullReg[,4] + OLBClusterFullReg[,5] + OLBClusterFullReg[,6], data = OLBClusterFullReg)
+summary(OLBunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(OLBreducedmetafit)
+
+OLBstandardreducedweights = c(300.4, 856.0, 556.6)
+OLBstandardreducedweights = OLBstandardreducedweights/sum(OLBstandardreducedweights)
+
+summary(OLBunreducedmetafit)
+
+OLBstandardunreducedweights = c(652.3, 359.9, 390.0, 174.2, 146.8)
+OLBstandardunreducedweights = OLBstandardunreducedweights/sum(OLBstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+OLBclusterreducedweights = normalizealldataframe(pnorm(OLBkclusterReducedNorm$centers))
+OLBclusterunreducedweights = normalizealldataframe(pnorm(OLBkclusterFullNorm$centers))
+
+OLBadjustedreducedweights = OLBclusterreducedweights
+OLBadjustedunreducedweights = OLBclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  OLBadjustedreducedweights[i,] = normalizetolength(OLBstandardreducedweights+OLBclusterreducedweights[i,])
+  OLBadjustedunreducedweights[i,] = normalizetolength(OLBstandardunreducedweights+OLBclusterunreducedweights[i,])
+}
+
+OLBTotalScoresReduced = OLBClusterReducedRegNoOverall
+OLBTotalScoresUnreduced = OLBClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(OLBOriginal[,1])) {
+  for (j in 1:5) {
+    OLBTotalScoresReduced[i, j] = 100*pnorm(sum(OLBClusterReducedRegNoOverall[i,]*OLBadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(OLBOriginal[,1])) {
+  for (j in 1:5) {
+    OLBTotalScoresUnreduced[i, j] = 100*pnorm(sum(OLBClusterFullRegNoOverall[i,]*OLBadjustedunreducedweights[j,]))
+  }
+}
+
+
+
+# Reduced Norm
+# Cluster 1 POWER RUSHING OLB
+# Cluster 2 BALANCED OLB
+# Cluster 3 COVERAGE TACKLING OLB
+# Cluster 4 SPEED RUSHING OLB
+# Cluster 5 STRONG TACKLING OLB
+
+# Full Norm
+# Cluster 1 BALANCED OLB
+# Cluster 2 POWER OLB
+# Cluster 3 COVERAGE TACKLING OLB
+# Cluster 4 SPEED RUSHING OLB
+# Cluster 5 FINESSE RUSHING OLB
+
+
+colnames(OLBTotalScoresReduced) = c("Power Rushing OLB", "Balanced OLB", "Coverage Tackling OLB", "Speed Rushing OLB", "Strong Tackling OLB")
+colnames(OLBTotalScoresUnreduced) = c("Balanced OLB", "Power OLB", "Coverage Tackling OLB", "Speed Rushing OLB", "Finesse Rushing OLB")
+
+OLBkclusterFullNorm$centers
+OLBTotalScoresUnreduced
+OLBkclusterReducedNorm$centers
+OLBTotalScoresReduced
+
+
+OLBTotalScoresReducedwithOVR = OLBTotalScoresReduced
+OLBTotalScoresUnreducedwithOVR = OLBTotalScoresUnreduced
+
+OLBTotalScoresReducedwithOVR[,6] = OLBOriginal[,1]
+OLBTotalScoresUnreducedwithOVR[,6] = OLBOriginal[,1]
+
+OLBTotalScoresReducedwithOVR
+OLBTotalScoresUnreducedwithOVR
+
+OLBstandardunreducedweights
+OLBadjustedunreducedweights
+OLBstandardreducedweights
+OLBadjustedreducedweights
+
+
+```

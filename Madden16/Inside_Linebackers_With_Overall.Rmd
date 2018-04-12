@@ -1,0 +1,460 @@
+---
+title: "Inside_Linebackers_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the ILB attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenILBs = subset(MaddenAllPlayers, Position == "MLB")
+ILBAttributes = c(6:11, 22, 25:27, 35:41, 45)
+ILBOriginal = MaddenILBs[ILBAttributes]
+rownames(ILBOriginal) = do.call(paste, c(MaddenILBs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+ILBmeans = c()
+ILBsds = c()
+ILBzscores = matrix(0, nrow = length(ILBOriginal[,1]), ncol = length(ILBOriginal))
+for (i in 1:length(ILBOriginal)) {
+  ILBmeans = append(ILBmeans, mean(ILBOriginal[,i]))
+  ILBsds = append(ILBsds, sd(ILBOriginal[,i])*sqrt((length(ILBOriginal[,i])-1)/(length(ILBOriginal[,i]))))
+  for (j in 1:length(ILBOriginal[,i])) {
+    ILBzscores[j,i] = (ILBOriginal[j,i]-ILBmeans[i])/ILBsds[i]
+  }
+}
+ILBzscores = data.frame(ILBzscores)
+rownames(ILBzscores) = do.call(paste, c(MaddenILBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(ILBzscores) = colnames(ILBOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+ILBNormzscores = ILBzscores[,-1]
+ILBrowadjz = length(ILBNormzscores[1,])
+for (i in 1:length(ILBNormzscores)) {
+  for (j in 1:length(ILBNormzscores[,1])) {
+  ILBNormzscores[j, i] = ILBzscores[j, i+1]-(sum(ILBzscores[j,])/ILBrowadjz)
+  }
+}
+ILBNormzscores = data.frame(ILBNormzscores)
+rownames(ILBNormzscores) = do.call(paste, c(MaddenILBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(ILBNormzscores) = colnames(ILBzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+ILBover = ILBzscores[,1]
+
+ILBfit <- lm(ILBover ~ ILBzscores[,2] + ILBzscores[,3] + ILBzscores[,4] + ILBzscores[,5] + ILBzscores[,6] + ILBzscores[,7] + ILBzscores[,8] + ILBzscores[,9] + ILBzscores[,10] + ILBzscores[,11] + ILBzscores[,12] + ILBzscores[,13] + ILBzscores[,14] + ILBzscores[,15] + ILBzscores[,16] + ILBzscores[,17] + ILBzscores[,18], data = ILBzscores)
+summary(ILBfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+ILBReduced = ILBzscores[,c(1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 18)]
+ILBreducedfit <- lm(ILBover ~ ILBReduced[,2] + ILBReduced[,3] + ILBReduced[,4] + ILBReduced[,5] + ILBReduced[,6] + ILBReduced[,7] + ILBReduced[,8] + ILBReduced[,9] + ILBReduced[,10] + ILBReduced[,11] + ILBReduced[,12] + ILBReduced[,13] + ILBReduced[,14] + ILBReduced[,15], data = ILBReduced)
+summary(ILBreducedfit)
+
+# This normalizes the reduced criteria
+
+ILBNormReduced = ILBNormzscores[,c(1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14, 15, 16, 17)]
+ILBNormReduceILBemp = ILBNormReduced
+ILBrowadjreduced = length(ILBNormReduced[1,])
+for (i in 1:length(ILBNormReduced)) {
+  for (j in 1:length(ILBNormzscores[,1])) {
+  ILBNormReduced[j, i] = ILBNormReduceILBemp[j, i]-(sum(ILBNormReduceILBemp[j,])/ILBrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+ILBreducedcovar = cov(ILBReduced[,-1])
+
+ILBcovar = cov(ILBOriginal[,-1])
+
+set.seed(1)
+ILBreducedcriteriaclusters = kmeans(ILBreducedcovar, 3)
+set.seed(1)
+ILBcriteriaclusters = kmeans(ILBcovar, 5)
+clusplot(ILBreducedcovar, ILBreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(ILBcovar, ILBcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Awareness (Awareness, Play Recognition)
+# Cluster 2: Tackling (Tackle, Stamina, Power Moves, Pursuit, Hit Power)
+# Cluster 3: Blitzing (Strength, Toughness, BLock Shedding)
+# Cluster 4: Coverage (Finesse Moves, Man Coverage, Zone Coverage)
+# Cluster 5: Speed (Speed, Acceleration, Agility, Injury)
+
+# Reduced
+# Cluster 1: Speed (Speed, Acceleration, Agility, Finesse Moves)
+# Cluster 2: Tackling And Coverage (Awareness, Tackle, Pursuit, Play Recognition, Man Coverage, Zone Coverage)
+# Cluster 3: Blitzing (Strength, Power Moves, Block Shedding, Hit Power)
+
+ILBAwarenessGroupFullReg = c(6, 15)
+ILBTacklingGroupFullReg = c(7, 9, 11, 14, 18)
+ILBBlitzingGroupFullReg = c(4, 10, 13)
+ILBCoverageGroupFullReg = c(12, 16, 17)
+ILBSpeedGroupFullReg = c(2, 3, 5, 8)
+
+summary(ILBfit)
+
+ILBcriteriaclusters
+
+ILBAwarenessGroupWeightsFullReg = c(298.6, 274.8)
+ILBTacklingGroupWeightsFullReg = c(188.4, 0, 60.29, 114.3, 59.61)
+ILBBlitzingGroupWeightsFullReg = c(45.98, 0, 175.7)
+ILBCoverageGroupWeightsFullReg = c(74.90, 26.44, 46.15)
+ILBSpeedGroupWeightsFullReg = c(40.05, 28.11, 40.60, 0)
+
+ILBAwarenessGroupWeightsFullReg[]/sum(ILBAwarenessGroupWeightsFullReg)
+ILBTacklingGroupWeightsFullReg[]/sum(ILBTacklingGroupWeightsFullReg)
+ILBBlitzingGroupWeightsFullReg[]/sum(ILBBlitzingGroupWeightsFullReg)
+ILBCoverageGroupWeightsFullReg[]/sum(ILBCoverageGroupWeightsFullReg)
+ILBSpeedGroupWeightsFullReg[]/sum(ILBSpeedGroupWeightsFullReg)
+
+
+ILBOVRFullReg = c()
+ILBAwarenessScoresFullReg = c()
+ILBTacklingScoresFullReg = c()
+ILBBlitzingScoresFullReg = c()
+ILBCoverageScoresFullReg = c()
+ILBSpeedScoresFullReg = c()
+
+ILBClusterFullReg = matrix(0, nrow = length(ILBOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(ILBzscores[,1])) {
+  ILBOVRFullReg = append(ILBOVRFullReg, ILBzscores[i, 1])
+  ILBAwarenessScoresFullReg = append(ILBAwarenessScoresFullReg, sum(ILBzscores[i, ILBAwarenessGroupFullReg]*ILBAwarenessGroupWeightsFullReg)/sum(ILBAwarenessGroupWeightsFullReg))
+  ILBTacklingScoresFullReg = append(ILBTacklingScoresFullReg, sum(ILBzscores[i, ILBTacklingGroupFullReg]*ILBTacklingGroupWeightsFullReg)/sum(ILBTacklingGroupWeightsFullReg))
+  ILBBlitzingScoresFullReg = append(ILBBlitzingScoresFullReg, sum(ILBzscores[i, ILBBlitzingGroupFullReg]*ILBBlitzingGroupWeightsFullReg)/sum(ILBBlitzingGroupWeightsFullReg))
+  ILBCoverageScoresFullReg = append(ILBCoverageScoresFullReg, sum(ILBzscores[i, ILBCoverageGroupFullReg]*ILBCoverageGroupWeightsFullReg)/sum(ILBCoverageGroupWeightsFullReg))
+  ILBSpeedScoresFullReg = append(ILBSpeedScoresFullReg, sum(ILBzscores[i, ILBSpeedGroupFullReg]*ILBSpeedGroupWeightsFullReg)/sum(ILBSpeedGroupWeightsFullReg))
+  ILBClusterFullReg[i, 1] = ILBOVRFullReg[i]
+  ILBClusterFullReg[i, 2] = ILBAwarenessScoresFullReg[i]
+  ILBClusterFullReg[i, 3] = ILBTacklingScoresFullReg[i]
+  ILBClusterFullReg[i, 4] = ILBBlitzingScoresFullReg[i]
+  ILBClusterFullReg[i, 5] = ILBCoverageScoresFullReg[i]
+  ILBClusterFullReg[i, 6] = ILBSpeedScoresFullReg[i]
+}
+ILBClusterFullReg = data.frame(ILBClusterFullReg)
+rownames(ILBClusterFullReg) = do.call(paste, c(MaddenILBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(ILBClusterFullReg) = c("Overall", "Awareness", "Tackling", "Blitzing", "Coverage", "Speed")
+
+ILBClusterFullRegNoOverall = ILBClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+ILBAwarenessGroupFullNorm = ILBAwarenessGroupFullReg-1
+ILBTacklingGroupFullNorm = ILBTacklingGroupFullReg-1
+ILBBlitzingGroupFullNorm = ILBBlitzingGroupFullReg-1
+ILBCoverageGroupFullNorm = ILBCoverageGroupFullReg-1
+ILBSpeedGroupFullNorm = ILBSpeedGroupFullReg-1
+
+ILBAwarenessGroupWeightsFullNorm = ILBAwarenessGroupWeightsFullReg
+ILBTacklingGroupWeightsFullNorm = ILBTacklingGroupWeightsFullReg
+ILBBlitzingGroupWeightsFullNorm = ILBBlitzingGroupWeightsFullReg
+ILBCoverageGroupWeightsFullNorm = ILBCoverageGroupWeightsFullReg
+ILBSpeedGroupWeightsFullNorm = ILBSpeedGroupWeightsFullReg
+
+ILBAwarenessScoresFullNorm = c()
+ILBTacklingScoresFullNorm = c()
+ILBBlitzingScoresFullNorm = c()
+ILBCoverageScoresFullNorm = c()
+ILBSpeedScoresFullNorm = c()
+
+ILBClusterFullNorm = matrix(0, nrow = length(ILBOriginal[,1]), ncol = 5)
+ILBClusterFullNormtemp = ILBClusterFullNorm
+
+
+for (i in 1: length(ILBNormzscores[,1])) {
+  ILBAwarenessScoresFullNorm = append(ILBAwarenessScoresFullNorm, sum(ILBNormzscores[i, ILBAwarenessGroupFullNorm]*ILBAwarenessGroupWeightsFullNorm)/sum(ILBAwarenessGroupWeightsFullNorm))
+  ILBTacklingScoresFullNorm = append(ILBTacklingScoresFullNorm, sum(ILBNormzscores[i, ILBTacklingGroupFullNorm]*ILBTacklingGroupWeightsFullNorm)/sum(ILBTacklingGroupWeightsFullNorm))
+  ILBBlitzingScoresFullNorm = append(ILBBlitzingScoresFullNorm, sum(ILBNormzscores[i, ILBBlitzingGroupFullNorm]*ILBBlitzingGroupWeightsFullNorm)/sum(ILBBlitzingGroupWeightsFullNorm))
+  ILBCoverageScoresFullNorm = append(ILBCoverageScoresFullNorm, sum(ILBNormzscores[i, ILBCoverageGroupFullNorm]*ILBCoverageGroupWeightsFullNorm)/sum(ILBCoverageGroupWeightsFullNorm))
+  ILBSpeedScoresFullNorm = append(ILBSpeedScoresFullNorm, sum(ILBNormzscores[i, ILBSpeedGroupFullNorm]*ILBSpeedGroupWeightsFullNorm)/sum(ILBSpeedGroupWeightsFullNorm))
+  ILBClusterFullNormtemp[i, 1] = ILBAwarenessScoresFullNorm[i]
+  ILBClusterFullNormtemp[i, 2] = ILBTacklingScoresFullNorm[i]
+  ILBClusterFullNormtemp[i, 3] = ILBBlitzingScoresFullNorm[i]
+  ILBClusterFullNormtemp[i, 4] = ILBCoverageScoresFullNorm[i]
+  ILBClusterFullNormtemp[i, 5] = ILBSpeedScoresFullNorm[i]
+}
+
+ILBClusterFullNormtemp = data.frame(ILBClusterFullNormtemp)
+
+ILBrowadjclusterFullNorm = length(ILBClusterFullNorm[1,])
+for (i in 1:length(ILBClusterFullNormtemp)) {
+  for (j in 1:length(ILBClusterFullNormtemp[,1])) {
+  ILBClusterFullNorm[j, i] = ILBClusterFullNormtemp[j, i]-(sum(ILBClusterFullNormtemp[j,])/ILBrowadjclusterFullNorm)
+  }
+}
+
+ILBClusterFullNorm = data.frame(ILBClusterFullNorm)
+rownames(ILBClusterFullNorm) = do.call(paste, c(MaddenILBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(ILBClusterFullNorm) = c("Awareness", "Tackling", "Blitzing", "Coverage", "Speed")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Speed (Speed, Acceleration, Agility, Finesse Moves)
+# Cluster 2: Tackling And Coverage (Awareness, Tackle, Pursuit, Play Recognition, Man Coverage, Zone Coverage)
+# Cluster 3: Blitzing (Strength, Power Moves, Block Shedding, Hit Power)
+
+ILBSpeedGroupReducedReg = c(2, 3, 5, 9)
+ILBTacklingAndCoverageGroupReducedReg = c(6, 7, 11, 12, 13, 14)
+ILBBlitzingGroupReducedReg = c(4, 8, 10, 15)
+
+summary(ILBreducedfit)
+
+ILBreducedcriteriaclusters
+
+ILBSpeedGroupWeightsReducedReg = c(40.39, 27.90, 40.92, 74.92)
+ILBTacklingAndCoverageGroupWeightsReducedReg = c(298.6, 188.2, 114.9, 273.8, 26.12, 45.41)
+ILBBlitzingGroupWeightsReducedReg = c(45.62, 60.00, 175.9, 59.17)
+
+ILBSpeedGroupWeightsReducedReg[]/sum(ILBSpeedGroupWeightsReducedReg)
+ILBTacklingAndCoverageGroupWeightsReducedReg[]/sum(ILBTacklingAndCoverageGroupWeightsReducedReg)
+ILBBlitzingGroupWeightsReducedReg[]/sum(ILBBlitzingGroupWeightsReducedReg)
+
+ILBOVRReducedReg = c()
+ILBSpeedScoresReducedReg = c()
+ILBTacklingAndCoverageScoresReducedReg = c()
+ILBBlitzingScoresReducedReg = c()
+
+ILBClusterReducedReg = matrix(0, nrow = length(ILBOriginal[,1]), ncol = 4)
+
+for (i in 1: length(ILBReduced[,1])) {
+  ILBOVRReducedReg = append(ILBOVRReducedReg, ILBReduced[i, 1])
+  ILBSpeedScoresReducedReg = append(ILBSpeedScoresReducedReg, sum(ILBReduced[i, ILBSpeedGroupReducedReg]*ILBSpeedGroupWeightsReducedReg)/sum(ILBSpeedGroupWeightsReducedReg))
+  ILBTacklingAndCoverageScoresReducedReg = append(ILBTacklingAndCoverageScoresReducedReg, sum(ILBReduced[i, ILBTacklingAndCoverageGroupReducedReg]*ILBTacklingAndCoverageGroupWeightsReducedReg)/sum(ILBTacklingAndCoverageGroupWeightsReducedReg))
+  ILBBlitzingScoresReducedReg = append(ILBBlitzingScoresReducedReg, sum(ILBReduced[i, ILBBlitzingGroupReducedReg]*ILBBlitzingGroupWeightsReducedReg)/sum(ILBBlitzingGroupWeightsReducedReg))
+  ILBClusterReducedReg[i, 1] = ILBOVRReducedReg[i]
+  ILBClusterReducedReg[i, 2] = ILBSpeedScoresReducedReg[i]
+  ILBClusterReducedReg[i, 3] = ILBTacklingAndCoverageScoresReducedReg[i]
+  ILBClusterReducedReg[i, 4] = ILBBlitzingScoresReducedReg[i]
+}
+ILBClusterReducedReg = data.frame(ILBClusterReducedReg)
+rownames(ILBClusterReducedReg) = do.call(paste, c(MaddenILBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(ILBClusterReducedReg) = c("Overall", "Speed", "Tackling And Coverage", "Blitzing")
+
+
+ILBClusterReducedRegNoOverall = ILBClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+ILBSpeedGroupReducedNorm = ILBSpeedGroupReducedReg - 1
+ILBTacklingAndCoverageGroupReducedNorm = ILBTacklingAndCoverageGroupReducedReg - 1
+ILBBlitzingGroupReducedNorm = ILBBlitzingGroupReducedReg - 1
+
+ILBSpeedGroupWeightsReducedNorm = ILBSpeedGroupWeightsReducedReg
+ILBTacklingAndCoverageGroupWeightsReducedNorm = ILBTacklingAndCoverageGroupWeightsReducedReg
+ILBBlitzingGroupWeightsReducedNorm = ILBBlitzingGroupWeightsReducedReg
+
+ILBSpeedScoresReducedNorm = c()
+ILBTacklingAndCoverageScoresReducedNorm = c()
+ILBBlitzingScoresReducedNorm = c()
+
+
+ILBClusterReducedNorm = matrix(0, nrow = length(ILBNormReduced[,1]), ncol = 3)
+ILBClusterReducedNormtemp = ILBClusterReducedNorm
+for (i in 1: length(ILBNormReduced[,1])) {
+  ILBSpeedScoresReducedNorm = append(ILBSpeedScoresReducedNorm, sum(ILBNormReduced[i, ILBSpeedGroupReducedNorm]*ILBSpeedGroupWeightsReducedNorm)/sum(ILBSpeedGroupWeightsReducedNorm))
+  ILBTacklingAndCoverageScoresReducedNorm = append(ILBTacklingAndCoverageScoresReducedNorm, sum(ILBNormReduced[i, ILBTacklingAndCoverageGroupReducedNorm]*ILBTacklingAndCoverageGroupWeightsReducedNorm)/sum(ILBTacklingAndCoverageGroupWeightsReducedNorm))
+  ILBBlitzingScoresReducedNorm = append(ILBBlitzingScoresReducedNorm, sum(ILBNormReduced[i, ILBBlitzingGroupReducedNorm]*ILBBlitzingGroupWeightsReducedNorm)/sum(ILBBlitzingGroupWeightsReducedNorm))
+  ILBClusterReducedNormtemp[i, 1] = ILBSpeedScoresReducedNorm[i]
+  ILBClusterReducedNormtemp[i, 2] = ILBTacklingAndCoverageScoresReducedNorm[i]
+  ILBClusterReducedNormtemp[i, 3] = ILBBlitzingScoresReducedNorm[i]
+}
+
+ILBClusterReducedNormtemp = data.frame(ILBClusterReducedNormtemp)
+
+ILBrowadjclusterReducedNorm = length(ILBClusterReducedNorm[1,])
+for (i in 1:length(ILBClusterReducedNormtemp)) {
+  for (j in 1:length(ILBClusterReducedNormtemp[,1])) {
+  ILBClusterReducedNorm[j, i] = ILBClusterReducedNormtemp[j, i]-(sum(ILBClusterReducedNormtemp[j,])/ILBrowadjclusterReducedNorm)
+  }
+}
+
+
+ILBClusterReducedNorm = data.frame(ILBClusterReducedNorm, row.names = do.call(paste, c(MaddenILBs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(ILBClusterReducedNorm) = c("Speed", "Tackling And Coverage", "Blitzing")
+
+# This clusters the players 
+
+ILBnclusters = 5
+
+set.seed(1)
+ILBkz = kmeans(ILBzscores, ILBnclusters)
+set.seed(1)
+ILBNormkz = kmeans(ILBNormzscores, ILBnclusters)
+set.seed(1)
+ILBkreduced = kmeans(ILBReduced, ILBnclusters)
+set.seed(1)
+ILBNormkreduced = kmeans(ILBNormReduced, ILBnclusters)
+
+set.seed(1)
+ILBkclusterReducedReg = kmeans(ILBClusterReducedReg, ILBnclusters)
+set.seed(1)
+ILBkclusterReducedNorm = kmeans(ILBClusterReducedNorm, ILBnclusters)
+set.seed(1)
+ILBkclusterFullReg = kmeans(ILBClusterFullReg, ILBnclusters)
+set.seed(1)
+ILBkclusterFullNorm = kmeans(ILBClusterFullNorm, ILBnclusters)
+
+
+clusplot(ILBzscores, ILBkz$cluster, lines=0, labels=2, cex=0.75)
+ILBkz$centers
+clusplot(ILBNormzscores, ILBNormkz$cluster, lines=0, labels=2, cex=0.75)
+ILBNormkz$centers
+clusplot(ILBReduced, ILBkreduced$cluster, lines=0, labels=2, cex=0.75)
+ILBkreduced$centers
+clusplot(ILBNormReduced, ILBNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+ILBNormkreduced$centers
+
+clusplot(ILBClusterReducedReg, ILBkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+ILBkclusterReducedReg$centers
+clusplot(ILBClusterReducedNorm, ILBkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+ILBkclusterReducedNorm$centers
+clusplot(ILBClusterFullReg, ILBkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+ILBkclusterFullReg$centers
+clusplot(ILBClusterFullNorm, ILBkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+ILBkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 BALANCED ILB
+# Cluster 2 SPEED RUSHING ILB
+# Cluster 3 RUN STOPPING ILB
+# Cluster 4 SPEED ILB
+# Cluster 5 COVERAGE ILB
+
+# Full Norm
+# Cluster 1 COVERAGE ILB
+# Cluster 2 SPEED RUSHING ILB
+# Cluster 3 RUN STOPPING ILB
+# Cluster 4 SPEED COVERAGE ILB
+# Cluster 5 BALANCED ILB
+
+ILBClusterReducedNorm
+ILBClusterFullNorm
+ILBkclusterReducedNorm
+ILBkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+ILBreducedmetafit <- lm(ILBClusterReducedReg[,1] ~ ILBClusterReducedReg[,2] + ILBClusterReducedReg[,3] + ILBClusterReducedReg[,4], data = ILBClusterReducedReg)
+summary(ILBreducedmetafit)
+ILBunreducedmetafit <- lm(ILBClusterFullReg[,1] ~ ILBClusterFullReg[,2] + ILBClusterFullReg[,3] + ILBClusterFullReg[,4] + ILBClusterFullReg[,5] + ILBClusterFullReg[,6], data = ILBClusterFullReg)
+summary(ILBunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(ILBreducedmetafit)
+
+ILBstandardreducedweights = c(15.31, 1451, 296.1)
+ILBstandardreducedweights = ILBstandardreducedweights/sum(ILBstandardreducedweights)
+
+summary(ILBunreducedmetafit)
+
+ILBstandardunreducedweights = c(572.3, 422.5, 221.5, 147.0, 109.2)
+ILBstandardunreducedweights = ILBstandardunreducedweights/sum(ILBstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+ILBclusterreducedweights = normalizealldataframe(pnorm(ILBkclusterReducedNorm$centers))
+ILBclusterunreducedweights = normalizealldataframe(pnorm(ILBkclusterFullNorm$centers))
+
+ILBadjustedreducedweights = ILBclusterreducedweights
+ILBadjustedunreducedweights = ILBclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  ILBadjustedreducedweights[i,] = normalizetolength(ILBstandardreducedweights+ILBclusterreducedweights[i,])
+  ILBadjustedunreducedweights[i,] = normalizetolength(ILBstandardunreducedweights+ILBclusterunreducedweights[i,])
+}
+
+ILBTotalScoresReduced = ILBClusterReducedRegNoOverall
+ILBTotalScoresUnreduced = ILBClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(ILBOriginal[,1])) {
+  for (j in 1:5) {
+    ILBTotalScoresReduced[i, j] = 100*pnorm(sum(ILBClusterReducedRegNoOverall[i,]*ILBadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(ILBOriginal[,1])) {
+  for (j in 1:5) {
+    ILBTotalScoresUnreduced[i, j] = 100*pnorm(sum(ILBClusterFullRegNoOverall[i,]*ILBadjustedunreducedweights[j,]))
+  }
+}
+
+
+
+# Reduced Norm
+# Cluster 1 BALANCED ILB
+# Cluster 2 SPEED RUSHING ILB
+# Cluster 3 RUN STOPPING ILB
+# Cluster 4 SPEED ILB
+# Cluster 5 COVERAGE ILB
+
+# Full Norm
+# Cluster 1 COVERAGE ILB
+# Cluster 2 SPEED RUSHING ILB
+# Cluster 3 RUN STOPPING ILB
+# Cluster 4 SPEED COVERAGE ILB
+# Cluster 5 BALANCED ILB
+
+
+colnames(ILBTotalScoresReduced) = c("Balanced", "Speed Rushing ILB", "Run Stopping ILB", "Speed ILB", "Coverage ILB")
+colnames(ILBTotalScoresUnreduced) = c("Coverage ILB", "Speed Rushing ILB", "Run Stopping ILB", "Speed Coverage ILB", "Balanced ILB")
+
+ILBkclusterFullNorm$centers
+ILBTotalScoresUnreduced
+ILBkclusterReducedNorm$centers
+ILBTotalScoresReduced
+
+
+ILBTotalScoresReducedwithOVR = ILBTotalScoresReduced
+ILBTotalScoresUnreducedwithOVR = ILBTotalScoresUnreduced
+
+ILBTotalScoresReducedwithOVR[,6] = ILBOriginal[,1]
+ILBTotalScoresUnreducedwithOVR[,6] = ILBOriginal[,1]
+
+ILBTotalScoresReducedwithOVR
+ILBTotalScoresUnreducedwithOVR
+
+ILBstandardunreducedweights
+ILBadjustedunreducedweights
+ILBstandardreducedweights
+ILBadjustedreducedweights
+
+```

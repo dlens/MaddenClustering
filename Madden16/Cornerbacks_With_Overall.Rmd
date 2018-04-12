@@ -1,0 +1,461 @@
+---
+title: "Cornerbacks_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the CB attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenCBs = subset(MaddenAllPlayers, Position == "CB")
+CBAttributes = c(6:12, 22:23, 25:27, 39:41, 45:46)
+CBOriginal = MaddenCBs[CBAttributes]
+rownames(CBOriginal) = do.call(paste, c(MaddenCBs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+CBmeans = c()
+CBsds = c()
+CBzscores = matrix(0, nrow = length(CBOriginal[,1]), ncol = length(CBOriginal))
+for (i in 1:length(CBOriginal)) {
+  CBmeans = append(CBmeans, mean(CBOriginal[,i]))
+  CBsds = append(CBsds, sd(CBOriginal[,i])*sqrt((length(CBOriginal[,i])-1)/(length(CBOriginal[,i]))))
+  for (j in 1:length(CBOriginal[,i])) {
+    CBzscores[j,i] = (CBOriginal[j,i]-CBmeans[i])/CBsds[i]
+  }
+}
+CBzscores = data.frame(CBzscores)
+rownames(CBzscores) = do.call(paste, c(MaddenCBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CBzscores) = colnames(CBOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+CBNormzscores = CBzscores[,-1]
+CBrowadjz = length(CBNormzscores[1,])
+for (i in 1:length(CBNormzscores)) {
+  for (j in 1:length(CBNormzscores[,1])) {
+  CBNormzscores[j, i] = CBzscores[j, i+1]-(sum(CBzscores[j,])/CBrowadjz)
+  }
+}
+CBNormzscores = data.frame(CBNormzscores)
+rownames(CBNormzscores) = do.call(paste, c(MaddenCBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CBNormzscores) = colnames(CBzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+CBover = CBzscores[,1]
+
+CBfit <- lm(CBover ~ CBzscores[,2] + CBzscores[,3] + CBzscores[,4] + CBzscores[,5] + CBzscores[,6] + CBzscores[,7] + CBzscores[,8] + CBzscores[,9] + CBzscores[,10] + CBzscores[,11] + CBzscores[,12] + CBzscores[,13] + CBzscores[,14] + CBzscores[,15] + CBzscores[,16] + CBzscores[,17], data = CBzscores)
+summary(CBfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+CBReduced = CBzscores[,c(1, 2, 3, 4, 5, 6, 8, 9, 11, 13, 14, 15, 17)]
+CBreducedfit <- lm(CBover ~ CBReduced[,2] + CBReduced[,3] + CBReduced[,4] + CBReduced[,5] + CBReduced[,6] + CBReduced[,7] + CBReduced[,8] + CBReduced[,9] + CBReduced[,10] + CBReduced[,11] + CBReduced[,12] + CBReduced[,13] , data = CBReduced)
+summary(CBreducedfit)
+
+# This normalizes the reduced criteria
+
+CBNormReduced = CBNormzscores[,c(1, 2, 3, 4, 5, 7, 9, 10, 12, 13, 14, 16)]
+CBNormReduceCBemp = CBNormReduced
+CBrowadjreduced = length(CBNormReduced[1,])
+for (i in 1:length(CBNormReduced)) {
+  for (j in 1:length(CBNormzscores[,1])) {
+  CBNormReduced[j, i] = CBNormReduceCBemp[j, i]-(sum(CBNormReduceCBemp[j,])/CBrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+CBreducedcovar = cov(CBReduced[,-1])
+
+CBcovar = cov(CBOriginal[,-1])
+
+set.seed(1)
+CBreducedcriteriaclusters = kmeans(CBreducedcovar, 3)
+set.seed(1)
+CBcriteriaclusters = kmeans(CBcovar, 5)
+clusplot(CBreducedcovar, CBreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(CBcovar, CBcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Awareness (Awareness)
+# Cluster 2: Zone Coverage (Strength, Tackle, Toughness, Zone Coverage)
+# Cluster 3: Man Coverage (Speed, Acceleration, Agility, Catching, Jumping, Injury, Stamina, Man Coverage)
+# Cluster 4: Play Recognition (Play Recognition)
+# Cluster 5: Press Coverage (Hit Power, Press)
+
+# Reduced
+# Cluster 1: Speed (Speed, Acceleration, Agility, Jumping)
+# Cluster 2: Coverage (Awareness, Stamina, Play Recognition, Man Coverage, Zone Coverage)
+# Cluster 3: Power (Strength, Tackle, Press)
+
+CBAwarenessGroupFullReg = c(6)
+CBZoneCoverageGroupFullReg = c(4, 8, 12, 15)
+CBManCoverageGroupFullReg = c(2, 3, 5, 7, 9, 10, 11, 14)
+CBPlayRecognitionGroupFullReg = c(13)
+CBPressCoverageGroupFullReg = c(16, 17)
+
+summary(CBfit)
+
+CBcriteriaclusters
+
+CBAwarenessGroupWeightsFullReg = c(419.4)
+CBZoneCoverageGroupWeightsFullReg = c(41.16, 85.93, 2.077, 134.7)
+CBManCoverageGroupWeightsFullReg = c(84.82, 74.63, 33.32, 2.125, 38.98, 4.421, 0, 266.6)
+CBPlayRecognitionGroupWeightsFullReg = c(237.9)
+CBPressCoverageGroupWeightsFullReg = c(0, 142.4)
+
+CBAwarenessGroupWeightsFullReg[]/sum(CBAwarenessGroupWeightsFullReg)
+CBZoneCoverageGroupWeightsFullReg[]/sum(CBZoneCoverageGroupWeightsFullReg)
+CBManCoverageGroupWeightsFullReg[]/sum(CBManCoverageGroupWeightsFullReg)
+CBPlayRecognitionGroupWeightsFullReg[]/sum(CBPlayRecognitionGroupWeightsFullReg)
+CBPressCoverageGroupWeightsFullReg[]/sum(CBPressCoverageGroupWeightsFullReg)
+
+CBOVRFullReg = c()
+CBAwarenessScoresFullReg = c()
+CBZoneCoverageScoresFullReg = c()
+CBManCoverageScoresFullReg = c()
+CBPlayRecognitionScoresFullReg = c()
+CBPressCoverageScoresFullReg = c()
+
+CBClusterFullReg = matrix(0, nrow = length(CBOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(CBzscores[,1])) {
+  CBOVRFullReg = append(CBOVRFullReg, CBzscores[i, 1])
+  CBAwarenessScoresFullReg = append(CBAwarenessScoresFullReg, sum(CBzscores[i, CBAwarenessGroupFullReg]*CBAwarenessGroupWeightsFullReg)/sum(CBAwarenessGroupWeightsFullReg))
+  CBZoneCoverageScoresFullReg = append(CBZoneCoverageScoresFullReg, sum(CBzscores[i, CBZoneCoverageGroupFullReg]*CBZoneCoverageGroupWeightsFullReg)/sum(CBZoneCoverageGroupWeightsFullReg))
+  CBManCoverageScoresFullReg = append(CBManCoverageScoresFullReg, sum(CBzscores[i, CBManCoverageGroupFullReg]*CBManCoverageGroupWeightsFullReg)/sum(CBManCoverageGroupWeightsFullReg))
+  CBPlayRecognitionScoresFullReg = append(CBPlayRecognitionScoresFullReg, sum(CBzscores[i, CBPlayRecognitionGroupFullReg]*CBPlayRecognitionGroupWeightsFullReg)/sum(CBPlayRecognitionGroupWeightsFullReg))
+  CBPressCoverageScoresFullReg = append(CBPressCoverageScoresFullReg, sum(CBzscores[i, CBPressCoverageGroupFullReg]*CBPressCoverageGroupWeightsFullReg)/sum(CBPressCoverageGroupWeightsFullReg))
+  CBClusterFullReg[i, 1] = CBOVRFullReg[i]
+  CBClusterFullReg[i, 2] = CBAwarenessScoresFullReg[i]
+  CBClusterFullReg[i, 3] = CBZoneCoverageScoresFullReg[i]
+  CBClusterFullReg[i, 4] = CBManCoverageScoresFullReg[i]
+  CBClusterFullReg[i, 5] = CBPlayRecognitionScoresFullReg[i]
+  CBClusterFullReg[i, 6] = CBPressCoverageScoresFullReg[i]
+}
+CBClusterFullReg = data.frame(CBClusterFullReg)
+rownames(CBClusterFullReg) = do.call(paste, c(MaddenCBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CBClusterFullReg) = c("Overall", "Awareness", "Zone Coverage", "Man Coverage", "Play Recognition", "Press Coverage")
+
+CBClusterFullRegNoOverall = CBClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+CBAwarenessGroupFullNorm = CBAwarenessGroupFullReg-1
+CBZoneCoverageGroupFullNorm = CBZoneCoverageGroupFullReg-1
+CBManCoverageGroupFullNorm = CBManCoverageGroupFullReg-1
+CBPlayRecognitionGroupFullNorm = CBPlayRecognitionGroupFullReg-1
+CBPressCoverageGroupFullNorm = CBPressCoverageGroupFullReg-1
+
+CBAwarenessGroupWeightsFullNorm = CBAwarenessGroupWeightsFullReg
+CBZoneCoverageGroupWeightsFullNorm = CBZoneCoverageGroupWeightsFullReg
+CBManCoverageGroupWeightsFullNorm = CBManCoverageGroupWeightsFullReg
+CBPlayRecognitionGroupWeightsFullNorm = CBPlayRecognitionGroupWeightsFullReg
+CBPressCoverageGroupWeightsFullNorm = CBPressCoverageGroupWeightsFullReg
+
+CBAwarenessScoresFullNorm = c()
+CBZoneCoverageScoresFullNorm = c()
+CBManCoverageScoresFullNorm = c()
+CBPlayRecognitionScoresFullNorm = c()
+CBPressCoverageScoresFullNorm = c()
+
+CBClusterFullNorm = matrix(0, nrow = length(CBOriginal[,1]), ncol = 5)
+CBClusterFullNormtemp = CBClusterFullNorm
+
+
+for (i in 1: length(CBNormzscores[,1])) {
+  CBAwarenessScoresFullNorm = append(CBAwarenessScoresFullNorm, sum(CBNormzscores[i, CBAwarenessGroupFullNorm]*CBAwarenessGroupWeightsFullNorm)/sum(CBAwarenessGroupWeightsFullNorm))
+  CBZoneCoverageScoresFullNorm = append(CBZoneCoverageScoresFullNorm, sum(CBNormzscores[i, CBZoneCoverageGroupFullNorm]*CBZoneCoverageGroupWeightsFullNorm)/sum(CBZoneCoverageGroupWeightsFullNorm))
+  CBManCoverageScoresFullNorm = append(CBManCoverageScoresFullNorm, sum(CBNormzscores[i, CBManCoverageGroupFullNorm]*CBManCoverageGroupWeightsFullNorm)/sum(CBManCoverageGroupWeightsFullNorm))
+  CBPlayRecognitionScoresFullNorm = append(CBPlayRecognitionScoresFullNorm, sum(CBNormzscores[i, CBPlayRecognitionGroupFullNorm]*CBPlayRecognitionGroupWeightsFullNorm)/sum(CBPlayRecognitionGroupWeightsFullNorm))
+  CBPressCoverageScoresFullNorm = append(CBPressCoverageScoresFullNorm, sum(CBNormzscores[i, CBPressCoverageGroupFullNorm]*CBPressCoverageGroupWeightsFullNorm)/sum(CBPressCoverageGroupWeightsFullNorm))
+  CBClusterFullNormtemp[i, 1] = CBAwarenessScoresFullNorm[i]
+  CBClusterFullNormtemp[i, 2] = CBZoneCoverageScoresFullNorm[i]
+  CBClusterFullNormtemp[i, 3] = CBManCoverageScoresFullNorm[i]
+  CBClusterFullNormtemp[i, 4] = CBPlayRecognitionScoresFullNorm[i]
+  CBClusterFullNormtemp[i, 5] = CBPressCoverageScoresFullNorm[i]
+}
+
+CBClusterFullNormtemp = data.frame(CBClusterFullNormtemp)
+
+CBrowadjclusterFullNorm = length(CBClusterFullNorm[1,])
+for (i in 1:length(CBClusterFullNormtemp)) {
+  for (j in 1:length(CBClusterFullNormtemp[,1])) {
+  CBClusterFullNorm[j, i] = CBClusterFullNormtemp[j, i]-(sum(CBClusterFullNormtemp[j,])/CBrowadjclusterFullNorm)
+  }
+}
+
+CBClusterFullNorm = data.frame(CBClusterFullNorm)
+rownames(CBClusterFullNorm) = do.call(paste, c(MaddenCBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CBClusterFullNorm) = c("Awareness", "Zone Coverage", "Man Coverage", "Play Recognition", "Press Coverage")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Speed (Speed, Acceleration, Agility, Jumping)
+# Cluster 2: Coverage (Awareness, Stamina, Play Recognition, Man Coverage, Zone Coverage)
+# Cluster 3: Power (Strength, Tackle, Press)
+
+CBSpeedGroupReducedReg = c(2, 3, 5, 8)
+CBCoverageGroupReducedReg = c(6, 9, 10, 11, 12)
+CBPowerGroupReducedReg = c(4, 7, 13)
+
+summary(CBreducedfit)
+
+CBreducedcriteriaclusters
+
+CBSpeedGroupWeightsReducedReg = c(83.93, 75.52, 33.12, 38.84)
+CBCoverageGroupWeightsReducedReg = c(419.6, 0, 237.2, 267.1, 136.0)
+CBPowerGroupWeightsReducedReg = c(41.04, 85.37, 142.7)
+
+CBSpeedGroupWeightsReducedReg[]/sum(CBSpeedGroupWeightsReducedReg)
+CBCoverageGroupWeightsReducedReg[]/sum(CBCoverageGroupWeightsReducedReg)
+CBPowerGroupWeightsReducedReg[]/sum(CBPowerGroupWeightsReducedReg)
+
+CBOVRReducedReg = c()
+CBSpeedScoresReducedReg = c()
+CBCoverageScoresReducedReg = c()
+CBPowerScoresReducedReg = c()
+
+CBClusterReducedReg = matrix(0, nrow = length(CBOriginal[,1]), ncol = 4)
+
+for (i in 1: length(CBReduced[,1])) {
+  CBOVRReducedReg = append(CBOVRReducedReg, CBReduced[i, 1])
+  CBSpeedScoresReducedReg = append(CBSpeedScoresReducedReg, sum(CBReduced[i, CBSpeedGroupReducedReg]*CBSpeedGroupWeightsReducedReg)/sum(CBSpeedGroupWeightsReducedReg))
+  CBCoverageScoresReducedReg = append(CBCoverageScoresReducedReg, sum(CBReduced[i, CBCoverageGroupReducedReg]*CBCoverageGroupWeightsReducedReg)/sum(CBCoverageGroupWeightsReducedReg))
+  CBPowerScoresReducedReg = append(CBPowerScoresReducedReg, sum(CBReduced[i, CBPowerGroupReducedReg]*CBPowerGroupWeightsReducedReg)/sum(CBPowerGroupWeightsReducedReg))
+  CBClusterReducedReg[i, 1] = CBOVRReducedReg[i]
+  CBClusterReducedReg[i, 2] = CBSpeedScoresReducedReg[i]
+  CBClusterReducedReg[i, 3] = CBCoverageScoresReducedReg[i]
+  CBClusterReducedReg[i, 4] = CBPowerScoresReducedReg[i]
+}
+CBClusterReducedReg = data.frame(CBClusterReducedReg)
+rownames(CBClusterReducedReg) = do.call(paste, c(MaddenCBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CBClusterReducedReg) = c("Overall", "Speed", "Coverage", "Power")
+
+
+CBClusterReducedRegNoOverall = CBClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+CBSpeedGroupReducedNorm = CBSpeedGroupReducedReg - 1
+CBCoverageGroupReducedNorm = CBCoverageGroupReducedReg - 1
+CBPowerGroupReducedNorm = CBPowerGroupReducedReg - 1
+
+CBSpeedGroupWeightsReducedNorm = CBSpeedGroupWeightsReducedReg
+CBCoverageGroupWeightsReducedNorm = CBCoverageGroupWeightsReducedReg
+CBPowerGroupWeightsReducedNorm = CBPowerGroupWeightsReducedReg
+
+CBSpeedScoresReducedNorm = c()
+CBCoverageScoresReducedNorm = c()
+CBPowerScoresReducedNorm = c()
+
+
+CBClusterReducedNorm = matrix(0, nrow = length(CBNormReduced[,1]), ncol = 3)
+CBClusterReducedNormtemp = CBClusterReducedNorm
+for (i in 1: length(CBNormReduced[,1])) {
+  CBSpeedScoresReducedNorm = append(CBSpeedScoresReducedNorm, sum(CBNormReduced[i, CBSpeedGroupReducedNorm]*CBSpeedGroupWeightsReducedNorm)/sum(CBSpeedGroupWeightsReducedNorm))
+  CBCoverageScoresReducedNorm = append(CBCoverageScoresReducedNorm, sum(CBNormReduced[i, CBCoverageGroupReducedNorm]*CBCoverageGroupWeightsReducedNorm)/sum(CBCoverageGroupWeightsReducedNorm))
+  CBPowerScoresReducedNorm = append(CBPowerScoresReducedNorm, sum(CBNormReduced[i, CBPowerGroupReducedNorm]*CBPowerGroupWeightsReducedNorm)/sum(CBPowerGroupWeightsReducedNorm))
+  CBClusterReducedNormtemp[i, 1] = CBSpeedScoresReducedNorm[i]
+  CBClusterReducedNormtemp[i, 2] = CBCoverageScoresReducedNorm[i]
+  CBClusterReducedNormtemp[i, 3] = CBPowerScoresReducedNorm[i]
+}
+
+CBClusterReducedNormtemp = data.frame(CBClusterReducedNormtemp)
+
+CBrowadjclusterReducedNorm = length(CBClusterReducedNorm[1,])
+for (i in 1:length(CBClusterReducedNormtemp)) {
+  for (j in 1:length(CBClusterReducedNormtemp[,1])) {
+  CBClusterReducedNorm[j, i] = CBClusterReducedNormtemp[j, i]-(sum(CBClusterReducedNormtemp[j,])/CBrowadjclusterReducedNorm)
+  }
+}
+
+
+CBClusterReducedNorm = data.frame(CBClusterReducedNorm, row.names = do.call(paste, c(MaddenCBs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(CBClusterReducedNorm) = c("Speed", "Coverage", "Power")
+
+# This clusters the players 
+
+CBnclusters = 5
+
+set.seed(1)
+CBkz = kmeans(CBzscores, CBnclusters)
+set.seed(1)
+CBNormkz = kmeans(CBNormzscores, CBnclusters)
+set.seed(1)
+CBkreduced = kmeans(CBReduced, CBnclusters)
+set.seed(1)
+CBNormkreduced = kmeans(CBNormReduced, CBnclusters)
+
+set.seed(1)
+CBkclusterReducedReg = kmeans(CBClusterReducedReg, CBnclusters)
+set.seed(1)
+CBkclusterReducedNorm = kmeans(CBClusterReducedNorm, CBnclusters)
+set.seed(1)
+CBkclusterFullReg = kmeans(CBClusterFullReg, CBnclusters)
+set.seed(1)
+CBkclusterFullNorm = kmeans(CBClusterFullNorm, CBnclusters)
+
+
+clusplot(CBzscores, CBkz$cluster, lines=0, labels=2, cex=0.75)
+CBkz$centers
+clusplot(CBNormzscores, CBNormkz$cluster, lines=0, labels=2, cex=0.75)
+CBNormkz$centers
+clusplot(CBReduced, CBkreduced$cluster, lines=0, labels=2, cex=0.75)
+CBkreduced$centers
+clusplot(CBNormReduced, CBNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+CBNormkreduced$centers
+
+clusplot(CBClusterReducedReg, CBkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+CBkclusterReducedReg$centers
+clusplot(CBClusterReducedNorm, CBkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+CBkclusterReducedNorm$centers
+clusplot(CBClusterFullReg, CBkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+CBkclusterFullReg$centers
+clusplot(CBClusterFullNorm, CBkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+CBkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 SLOW COVER CB
+# Cluster 2 BALANCED CB
+# Cluster 3 SPEED CB
+# Cluster 4 FAST COVER CB
+# Cluster 5 TACKLING CB
+
+# Full Norm
+# Cluster 1 BALANCED CB
+# Cluster 2 COVER 2 CB
+# Cluster 3 WEAK HIGH AWARE CB
+# Cluster 4 MAN COVER CB
+# Cluster 5 PHYSICAL LOW AWARE CB
+
+CBClusterReducedNorm
+CBClusterFullNorm
+CBkclusterReducedNorm
+CBkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+CBreducedmetafit <- lm(CBClusterReducedReg[,1] ~ CBClusterReducedReg[,2] + CBClusterReducedReg[,3] + CBClusterReducedReg[,4], data = CBClusterReducedReg)
+summary(CBreducedmetafit)
+CBunreducedmetafit <- lm(CBClusterFullReg[,1] ~ CBClusterFullReg[,2] + CBClusterFullReg[,3] + CBClusterFullReg[,4] + CBClusterFullReg[,5] + CBClusterFullReg[,6], data = CBClusterFullReg)
+summary(CBunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(CBreducedmetafit)
+
+CBstandardreducedweights = c(230.3, 1055, 268.4)
+CBstandardreducedweights = CBstandardreducedweights/sum(CBstandardreducedweights)
+
+summary(CBunreducedmetafit)
+
+CBstandardunreducedweights = c(417.9, 261.5, 502.4, 236.1, 141.9)
+CBstandardunreducedweights = CBstandardunreducedweights/sum(CBstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+CBclusterreducedweights = normalizealldataframe(pnorm(CBkclusterReducedNorm$centers))
+CBclusterunreducedweights = normalizealldataframe(pnorm(CBkclusterFullNorm$centers))
+
+CBadjustedreducedweights = CBclusterreducedweights
+CBadjustedunreducedweights = CBclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  CBadjustedreducedweights[i,] = normalizetolength(CBstandardreducedweights+CBclusterreducedweights[i,])
+  CBadjustedunreducedweights[i,] = normalizetolength(CBstandardunreducedweights+CBclusterunreducedweights[i,])
+}
+
+CBTotalScoresReduced = CBClusterReducedRegNoOverall
+CBTotalScoresUnreduced = CBClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(CBOriginal[,1])) {
+  for (j in 1:5) {
+    CBTotalScoresReduced[i, j] = 100*pnorm(sum(CBClusterReducedRegNoOverall[i,]*CBadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(CBOriginal[,1])) {
+  for (j in 1:5) {
+    CBTotalScoresUnreduced[i, j] = 100*pnorm(sum(CBClusterFullRegNoOverall[i,]*CBadjustedunreducedweights[j,]))
+  }
+}
+
+
+
+
+# Reduced Norm
+# Cluster 1 SLOW COVER CB
+# Cluster 2 BALANCED CB
+# Cluster 3 SPEED CB
+# Cluster 4 FAST COVER CB
+# Cluster 5 TACKLING CB
+
+# Full Norm
+# Cluster 1 BALANCED CB
+# Cluster 2 COVER 2 CB
+# Cluster 3 WEAK HIGH AWARE CB
+# Cluster 4 MAN COVER CB
+# Cluster 5 PHYSICAL LOW AWARE CB
+
+
+colnames(CBTotalScoresReduced) = c("Slow Cover CB", "Balanced CB", "Speed CB", "Fast Cover CB", "Strong Tackling CB")
+colnames(CBTotalScoresUnreduced) = c("Balanced CB", "Cover 2", "Weak High Aware CB", "Man Cover CB", "Physical Low Aware CB")
+
+CBkclusterFullNorm$centers
+CBTotalScoresUnreduced
+CBkclusterReducedNorm$centers
+CBTotalScoresReduced
+
+
+CBTotalScoresReducedwithOVR = CBTotalScoresReduced
+CBTotalScoresUnreducedwithOVR = CBTotalScoresUnreduced
+
+CBTotalScoresReducedwithOVR[,6] = CBOriginal[,1]
+CBTotalScoresUnreducedwithOVR[,6] = CBOriginal[,1]
+
+CBTotalScoresReducedwithOVR
+CBTotalScoresUnreducedwithOVR
+
+CBstandardunreducedweights
+CBadjustedunreducedweights
+CBstandardreducedweights
+CBadjustedreducedweights
+
+```

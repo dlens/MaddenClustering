@@ -1,0 +1,426 @@
+---
+title: "Offensive_Tackles_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the OT attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenOTs = subset(MaddenAllPlayers, Position == "LT" | Position == "RT")
+OTAttributes = c(6:11, 20:21, 25:27, 34)
+OTOriginal = MaddenOTs[OTAttributes]
+rownames(OTOriginal) = do.call(paste, c(MaddenOTs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+OTmeans = c()
+OTsds = c()
+OTzscores = matrix(0, nrow = length(OTOriginal[,1]), ncol = length(OTOriginal))
+for (i in 1:length(OTOriginal)) {
+  OTmeans = append(OTmeans, mean(OTOriginal[,i]))
+  OTsds = append(OTsds, sd(OTOriginal[,i])*sqrt((length(OTOriginal[,i])-1)/(length(OTOriginal[,i]))))
+  for (j in 1:length(OTOriginal[,i])) {
+    OTzscores[j,i] = (OTOriginal[j,i]-OTmeans[i])/OTsds[i]
+  }
+}
+OTzscores = data.frame(OTzscores)
+rownames(OTzscores) = do.call(paste, c(MaddenOTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OTzscores) = colnames(OTOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+OTNormzscores = OTzscores[,-1]
+OTrowadjz = length(OTNormzscores[1,])
+for (i in 1:length(OTNormzscores)) {
+  for (j in 1:length(OTNormzscores[,1])) {
+  OTNormzscores[j, i] = OTzscores[j, i+1]-(sum(OTzscores[j,])/OTrowadjz)
+  }
+}
+OTNormzscores = data.frame(OTNormzscores)
+rownames(OTNormzscores) = do.call(paste, c(MaddenOTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OTNormzscores) = colnames(OTzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+OTover = OTzscores[,1]
+
+OTfit <- lm(OTover ~ OTzscores[,2] + OTzscores[,3] + OTzscores[,4] + OTzscores[,5] + OTzscores[,6] + OTzscores[,7] + OTzscores[,8] + OTzscores[,9] + OTzscores[,10] + OTzscores[,11] + OTzscores[,12], data = OTzscores)
+summary(OTfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+OTReduced = OTzscores[,c(1, 6, 7, 8)]
+OTreducedfit <- lm(OTover ~ OTReduced[,2] + OTReduced[,3] + OTReduced[,4], data = OTReduced)
+summary(OTreducedfit)
+
+# This normalizes the reduced criteria
+
+OTNormReduced = OTNormzscores[,c(5, 6, 7)]
+OTNormReducedtemp = OTNormReduced
+OTrowadjreduced = length(OTNormReduced[1,])
+for (i in 1:length(OTNormReduced)) {
+  for (j in 1:length(OTNormzscores[,1])) {
+  OTNormReduced[j, i] = OTNormReducedtemp[j, i]-(sum(OTNormReducedtemp[j,])/OTrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+OTreducedcovar = cov(OTReduced[,-1])
+
+OTcovar = cov(OTOriginal[,-1])
+
+set.seed(1)
+OTreducedcriteriaclusters = kmeans(OTreducedcovar, 2)
+set.seed(1)
+OTcriteriaclusters = kmeans(OTcovar, 4)
+clusplot(OTreducedcovar, OTreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(OTcovar, OTcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+OTcriteriaclusters
+OTreducedcriteriaclusters
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Run Blocking (Strength, Run Block, Toughness)
+# Cluster 2: Pass Blocking (Agility, Pass Block, Stamina, Impact Block)
+# Cluster 3: Awareness (Awareness)
+# Cluster 4: Speed (Speed, Acceleration, Injury)
+# Cluster 5: NA
+
+# Reduced
+# Cluster 1: Pass Blocking (Awareness, Pass Block)
+# Cluster 2: Run Blocking (Run Block)
+# Cluster 3: NA
+
+OTRunBlockingGroupFullReg = c(4, 7, 11)
+OTPassBlockingGroupFullReg = c(5, 8, 10, 12)
+OTAwarenessGroupFullReg = c(6)
+OTSpeedGroupFullReg = c(2, 3, 9)
+
+
+summary(OTfit)
+
+OTRunBlockingGroupWeightsFullReg = c(33.31, 370.3, 0)
+OTPassBlockingGroupWeightsFullReg = c(0, 363.3, 64.85, 34.74)
+OTAwarenessGroupWeightsFullReg = c(418.0)
+OTSpeedGroupWeightsFullReg = c(25.14, 0, 7.896)
+
+
+OTOVRFullReg = c()
+OTRunBlockingScoresFullReg = c()
+OTPassBlockingScoresFullReg = c()
+OTAwarenessScoresFullReg = c()
+OTSpeedScoresFullReg = c()
+
+
+OTClusterFullReg = matrix(0, nrow = length(OTOriginal[,1]), ncol = 5)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(OTzscores[,1])) {
+  OTOVRFullReg = append(OTOVRFullReg, OTzscores[i, 1])
+  OTRunBlockingScoresFullReg = append(OTRunBlockingScoresFullReg, sum(OTzscores[i, OTRunBlockingGroupFullReg]*OTRunBlockingGroupWeightsFullReg)/sum(OTRunBlockingGroupWeightsFullReg))
+  OTPassBlockingScoresFullReg = append(OTPassBlockingScoresFullReg, sum(OTzscores[i, OTPassBlockingGroupFullReg]*OTPassBlockingGroupWeightsFullReg)/sum(OTPassBlockingGroupWeightsFullReg))
+  OTAwarenessScoresFullReg = append(OTAwarenessScoresFullReg, sum(OTzscores[i, OTAwarenessGroupFullReg]*OTAwarenessGroupWeightsFullReg)/sum(OTAwarenessGroupWeightsFullReg))
+  OTSpeedScoresFullReg = append(OTSpeedScoresFullReg, sum(OTzscores[i, OTSpeedGroupFullReg]*OTSpeedGroupWeightsFullReg)/sum(OTSpeedGroupWeightsFullReg))
+  OTClusterFullReg[i, 1] = OTOVRFullReg[i]
+  OTClusterFullReg[i, 2] = OTRunBlockingScoresFullReg[i]
+  OTClusterFullReg[i, 3] = OTPassBlockingScoresFullReg[i]
+  OTClusterFullReg[i, 4] = OTAwarenessScoresFullReg[i]
+  OTClusterFullReg[i, 5] = OTSpeedScoresFullReg[i]
+}
+OTClusterFullReg = data.frame(OTClusterFullReg)
+rownames(OTClusterFullReg) = do.call(paste, c(MaddenOTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OTClusterFullReg) = c("Overall", "Run Blocking", "Pass Blocking", "Awareness", "Speed")
+
+OTClusterFullRegNoOverall = OTClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+OTRunBlockingGroupFullNorm = OTRunBlockingGroupFullReg-1
+OTPassBlockingGroupFullNorm = OTPassBlockingGroupFullReg-1
+OTAwarenessGroupFullNorm = OTAwarenessGroupFullReg-1
+OTSpeedGroupFullNorm = OTSpeedGroupFullReg-1
+
+OTRunBlockingGroupWeightsFullNorm = OTRunBlockingGroupWeightsFullReg
+OTPassBlockingGroupWeightsFullNorm = OTPassBlockingGroupWeightsFullReg
+OTAwarenessGroupWeightsFullNorm = OTAwarenessGroupWeightsFullReg
+OTSpeedGroupWeightsFullNorm = OTSpeedGroupWeightsFullReg
+
+OTRunBlockingScoresFullNorm = c()
+OTPassBlockingScoresFullNorm = c()
+OTAwarenessScoresFullNorm = c()
+OTSpeedScoresFullNorm = c()
+
+OTClusterFullNorm = matrix(0, nrow = length(OTOriginal[,1]), ncol = 4)
+OTClusterFullNormtemp = OTClusterFullNorm
+
+for (i in 1: length(OTNormzscores[,1])) {
+  OTRunBlockingScoresFullNorm = append(OTRunBlockingScoresFullNorm, sum(OTNormzscores[i, OTRunBlockingGroupFullNorm]*OTRunBlockingGroupWeightsFullNorm)/sum(OTRunBlockingGroupWeightsFullNorm))
+  OTPassBlockingScoresFullNorm = append(OTPassBlockingScoresFullNorm, sum(OTNormzscores[i, OTPassBlockingGroupFullNorm]*OTPassBlockingGroupWeightsFullNorm)/sum(OTPassBlockingGroupWeightsFullNorm))
+  OTAwarenessScoresFullNorm = append(OTAwarenessScoresFullNorm, sum(OTNormzscores[i, OTAwarenessGroupFullNorm]*OTAwarenessGroupWeightsFullNorm)/sum(OTAwarenessGroupWeightsFullNorm))
+  OTSpeedScoresFullNorm = append(OTSpeedScoresFullNorm, sum(OTNormzscores[i, OTSpeedGroupFullNorm]*OTSpeedGroupWeightsFullNorm)/sum(OTSpeedGroupWeightsFullNorm))
+  OTClusterFullNormtemp[i, 1] = OTRunBlockingScoresFullNorm[i]
+  OTClusterFullNormtemp[i, 2] = OTPassBlockingScoresFullNorm[i]
+  OTClusterFullNormtemp[i, 3] = OTAwarenessScoresFullNorm[i]
+  OTClusterFullNormtemp[i, 4] = OTSpeedScoresFullNorm[i]
+}
+
+OTClusterFullNormtemp = data.frame(OTClusterFullNormtemp)
+
+OTrowadjclusterFullNorm = length(OTClusterFullNorm[1,])
+for (i in 1:length(OTClusterFullNormtemp)) {
+  for (j in 1:length(OTClusterFullNormtemp[,1])) {
+  OTClusterFullNorm[j, i] = OTClusterFullNormtemp[j, i]-(sum(OTClusterFullNormtemp[j,])/OTrowadjclusterFullNorm)
+  }
+}
+
+OTClusterFullNorm = data.frame(OTClusterFullNorm)
+rownames(OTClusterFullNorm) = do.call(paste, c(MaddenOTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OTClusterFullNorm) = c("Run Blocking", "Pass Blocking", "Awareness", "Speed")
+
+# This does the above for the reduced metafeatures (2)
+
+# Reduced
+# Cluster 1: Pass Blocking (Awareness, Pass Block)
+# Cluster 2: Run Blocking (Run Block)
+# Cluster 3: NA
+
+OTreducedcriteriaclusters
+
+OTPassBlockingGroupReducedReg = c(2, 4)
+OTRunBlockingGroupReducedReg = c(3)
+
+
+summary(OTreducedfit)
+
+OTPassBlockingGroupWeightsReducedReg = c(453.4, 386.3)
+OTRunBlockingGroupWeightsReducedReg = c(399.9)
+
+
+OTOVRReducedReg = c()
+OTPassBlockingScoresReducedReg = c()
+OTRunBlockingScoresReducedReg = c()
+
+
+OTClusterReducedReg = matrix(0, nrow = length(OTOriginal[,1]), ncol = 3)
+
+for (i in 1: length(OTReduced[,1])) {
+  OTOVRReducedReg = append(OTOVRReducedReg, OTReduced[i, 1])
+  OTPassBlockingScoresReducedReg = append(OTPassBlockingScoresReducedReg, sum(OTReduced[i, OTPassBlockingGroupReducedReg]*OTPassBlockingGroupWeightsReducedReg)/sum(OTPassBlockingGroupWeightsReducedReg))
+  OTRunBlockingScoresReducedReg = append(OTRunBlockingScoresReducedReg, sum(OTReduced[i, OTRunBlockingGroupReducedReg]*OTRunBlockingGroupWeightsReducedReg)/sum(OTRunBlockingGroupWeightsReducedReg))
+  OTClusterReducedReg[i, 1] = OTOVRReducedReg[i]
+  OTClusterReducedReg[i, 2] = OTPassBlockingScoresReducedReg[i]
+  OTClusterReducedReg[i, 3] = OTRunBlockingScoresReducedReg[i]
+}
+OTClusterReducedReg = data.frame(OTClusterReducedReg)
+rownames(OTClusterReducedReg) = do.call(paste, c(MaddenOTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OTClusterReducedReg) = c("Overall", "Pass Blocking", "Run Blocking")
+
+OTClusterReducedRegNoOverall = OTClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+OTPassBlockingGroupReducedNorm = OTPassBlockingGroupReducedReg - 1
+OTRunBlockingGroupReducedNorm = OTRunBlockingGroupReducedReg - 1
+
+OTPassBlockingGroupWeightsReducedNorm = OTPassBlockingGroupWeightsReducedReg
+OTRunBlockingGroupWeightsReducedNorm = OTRunBlockingGroupWeightsReducedReg
+
+OTPassBlockingScoresReducedNorm = c()
+OTRunBlockingScoresReducedNorm = c()
+
+OTClusterReducedNorm = matrix(0, nrow = length(OTNormReduced[,1]), ncol = 2)
+OTClusterReducedNormtemp = OTClusterReducedNorm
+for (i in 1: length(OTNormReduced[,1])) {
+  OTPassBlockingScoresReducedNorm = append(OTPassBlockingScoresReducedNorm, sum(OTNormReduced[i, OTPassBlockingGroupReducedNorm]*OTPassBlockingGroupWeightsReducedNorm)/sum(OTPassBlockingGroupWeightsReducedNorm))
+  OTRunBlockingScoresReducedNorm = append(OTRunBlockingScoresReducedNorm, sum(OTNormReduced[i, OTRunBlockingGroupReducedNorm]*OTRunBlockingGroupWeightsReducedNorm)/sum(OTRunBlockingGroupWeightsReducedNorm))
+  OTClusterReducedNormtemp[i, 1] = OTPassBlockingScoresReducedNorm[i]
+  OTClusterReducedNormtemp[i, 2] = OTRunBlockingScoresReducedNorm[i]
+}
+
+OTClusterReducedNormtemp = data.frame(OTClusterReducedNormtemp)
+
+OTrowadjclusterReducedNorm = length(OTClusterReducedNorm[1,])
+for (i in 1:length(OTClusterReducedNormtemp)) {
+  for (j in 1:length(OTClusterReducedNormtemp[,1])) {
+  OTClusterReducedNorm[j, i] = OTClusterReducedNormtemp[j, i]-(sum(OTClusterReducedNormtemp[j,])/OTrowadjclusterReducedNorm)
+  }
+}
+
+
+OTClusterReducedNorm = data.frame(OTClusterReducedNorm, row.names = do.call(paste, c(MaddenOTs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(OTClusterReducedNorm) = c("Pass Blocking", "Run Blocking")
+
+# This clusters the players 
+
+OTnclusters = 5
+
+set.seed(1)
+OTkz = kmeans(OTzscores, OTnclusters)
+set.seed(1)
+OTNormkz = kmeans(OTNormzscores, OTnclusters)
+set.seed(1)
+OTkreduced = kmeans(OTReduced, OTnclusters)
+set.seed(1)
+OTNormkreduced = kmeans(OTNormReduced, OTnclusters)
+
+set.seed(1)
+OTkclusterReducedReg = kmeans(OTClusterReducedReg, OTnclusters)
+set.seed(1)
+OTkclusterReducedNorm = kmeans(OTClusterReducedNorm, OTnclusters)
+set.seed(1)
+OTkclusterFullReg = kmeans(OTClusterFullReg, OTnclusters)
+set.seed(1)
+OTkclusterFullNorm = kmeans(OTClusterFullNorm, OTnclusters)
+
+
+clusplot(OTzscores, OTkz$cluster, lines=0, labels=2, cex=0.75)
+OTkz$centers
+clusplot(OTNormzscores, OTNormkz$cluster, lines=0, labels=2, cex=0.75)
+OTNormkz$centers
+clusplot(OTReduced, OTkreduced$cluster, lines=0, labels=2, cex=0.75)
+OTkreduced$centers
+clusplot(OTNormReduced, OTNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+OTNormkreduced$centers
+
+clusplot(OTClusterReducedReg, OTkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+OTkclusterReducedReg$centers
+clusplot(OTClusterReducedNorm, OTkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+OTkclusterReducedNorm$centers
+clusplot(OTClusterFullReg, OTkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+OTkclusterFullReg$centers
+clusplot(OTClusterFullNorm, OTkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+OTkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 EXTREME RUN BLOCKER
+# Cluster 2 MODERATE RUN BLOCKER
+# Cluster 3 BALANCED TACKLE
+# Cluster 4 EXTREME PASS BLOCKER
+# Cluster 5 MODERATE PASS BLOCKER
+
+# Full Norm
+# Cluster 1 HIGH AWARENESS RUN BLOCKER
+# Cluster 2 POWER RUN BLOCKER
+# Cluster 3 FAST RUN BLOCKER
+# Cluster 4 HIGH AWARENESS PASS BLOCKER
+# Cluster 5 FAST PASS BLOCKER
+
+OTClusterReducedNorm
+OTClusterFullNorm
+OTkclusterReducedNorm
+OTkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+OTreducedmetafit <- lm(OTClusterReducedReg[,1] ~ OTClusterReducedReg[,2] + OTClusterReducedReg[,3], data = OTClusterReducedReg)
+summary(OTreducedmetafit)
+OTunreducedmetafit <- lm(OTClusterFullReg[,1] ~ OTClusterFullReg[,2] + OTClusterFullReg[,3] + OTClusterFullReg[,4] + OTClusterFullReg[,5], data = OTClusterFullReg)
+summary(OTunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(OTreducedmetafit)
+
+OTstandardreducedweights = c(839.8, 399.9)
+OTstandardreducedweights = OTstandardreducedweights/sum(OTstandardreducedweights)
+
+summary(OTunreducedmetafit)
+
+OTstandardunreducedweights = c(403.0, 461.4, 417.9, 26.23)
+OTstandardunreducedweights = OTstandardunreducedweights/sum(OTstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+OTclusterreducedweights = normalizealldataframe(pnorm(OTkclusterReducedNorm$centers))
+OTclusterunreducedweights = normalizealldataframe(pnorm(OTkclusterFullNorm$centers))
+
+OTadjustedreducedweights = OTclusterreducedweights
+OTadjustedunreducedweights = OTclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  OTadjustedreducedweights[i,] = normalizetolength(OTstandardreducedweights+OTclusterreducedweights[i,])
+  OTadjustedunreducedweights[i,] = normalizetolength(OTstandardunreducedweights+OTclusterunreducedweights[i,])
+}
+
+OTTotalScoresReduced = OTClusterReducedRegNoOverall
+OTTotalScoresUnreduced = OTClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(OTOriginal[,1])) {
+  for (j in 1:5) {
+    OTTotalScoresReduced[i, j] = 100*pnorm(sum(OTClusterReducedRegNoOverall[i,]*OTadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(OTOriginal[,1])) {
+  for (j in 1:5) {
+    OTTotalScoresUnreduced[i, j] = 100*pnorm(sum(OTClusterFullRegNoOverall[i,]*OTadjustedunreducedweights[j,]))
+  }
+}
+
+OTkclusterFullNorm$centers
+OTkclusterReducedNorm$centers
+
+
+# Reduced Norm
+# Cluster 1 EXTREME RUN BLOCKER
+# Cluster 2 MODERATE RUN BLOCKER
+# Cluster 3 BALANCED TACKLE
+# Cluster 4 EXTREME PASS BLOCKER
+# Cluster 5 MODERATE PASS BLOCKER
+
+# Full Norm
+# Cluster 1 HIGH AWARENESS RUN BLOCKER
+# Cluster 2 POWER RUN BLOCKER
+# Cluster 3 FAST RUN BLOCKER
+# Cluster 4 HIGH AWARENESS PASS BLOCKER
+# Cluster 5 FAST PASS BLOCKER
+
+colnames(OTTotalScoresUnreduced) = c("High Awareness Run Blocker", "Power Run Blocker", "Fast Run Blocker", "High Awareness Pass Blocker", "Fast Pass Blocker")
+colnames(OTTotalScoresReduced) = c("Extreme Run Blocker", "Moderate Run Blocker", "Balanced Tackle", "Extreme Pass Blocker", "Moderate Pass Blocker")
+
+OTTotalScoresReduced
+OTTotalScoresUnreduced
+
+OTTotalScoresReducedwithOVR = OTTotalScoresReduced
+OTTotalScoresUnreducedwithOVR = OTTotalScoresUnreduced
+
+OTTotalScoresReducedwithOVR[,6] = OTOriginal[,1]
+OTTotalScoresUnreducedwithOVR[,6] = OTOriginal[,1]
+
+OTTotalScoresReducedwithOVR
+OTTotalScoresUnreducedwithOVR
+
+```

@@ -1,0 +1,1571 @@
+\documentclass[11pt]{article}
+\usepackage{fontspec}
+%\usepackage{xltxtra}
+
+\usepackage[design]{dljmv2overleaf}
+
+\title{Madden Project Phase 1: Categorization and Evaluation Of Players Based On Clustering Analysis}
+
+\author{Gavin Byrnes}
+\date{August 3, 2016}
+
+%\setcounter{tocdepth}{2}
+
+\usepackage{hyperref}
+\renewcommand{\fixme}[1]{\textcolor{red}{#1}\marginpar{\textcolor{red}{FIX!}}}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+
+\begin{abstract}
+Portfolio optimization is far more complicated than can be approximated by a simple linear combination of alternative evaluations. Some alternatives combine to provide value greater than the sum of their parts, while others create redundancies. Clustering alternatives and attributes based on observable data and estimable results can help us find useful patterns and construct efficient portfolios. This paper uses clustering analysis of ratings data from the Madden series of football video games to categorize and evaluate players in preparation for the next phase of an overall project of exploring roster construction (and, by extension, portfolio construction in general)
+\end{abstract}
+
+\section{Introduction}
+
+At the most basic level, portfolio construction refers to selecting a subset from a larger set of alternatives and evaluating its performance on some set of metrics. There might be constraints of cost, or of the number of alternatives that must be selected from one or more given categorizations of those alternatives, etc.
+
+This project emerged from a simple question: "How can we make portfolio evaluation more realistic by analyzing relationships between alternatives and criteria?" In traditional Decision Lens optimization, the value of a portfolio is typically calculated by summing the linearly constructed value scores of the selected alternatives and dividing by the total sum of value scores of all potential alternatives. This is sufficient for some problems, but obviously has several limitations. Successful portfolios require a diverse variety of alternatives, and do not always have value conveniently equal to the sum of their parts. We have frequently used a football metaphor in making this argument, saying things like ``Having ten good quarterbacks is not ten times as valuable as having one good quarterback'', or ``If you have a terrible quarterback, accumulating a lot of wide receivers doesn't help very much,'' or ``A good running back can produce like a great running back behind a great offensive line.'' 
+
+We have therefore constructed an experiment on the mechanics and mathematics of portfolio construction based in this football metaphor, using cluster analysis on alternatives and criteria to construct archetypes at each position and assign values to each player on each of these archetypes. This analysis bears some similarities to previous attempts to advance portfolio evaluation beyond the simple analysis of linear scores, occasionally bolstered by the use of alternative category constraints (in the football example, having diminishing returns for more than one quarterback, etc.) - the chief addition is the clustering analysis we have performed both on the alternatives and on the criteria.
+
+Performing clustering analysis on covariance matrices of alternative scores on various criteria is useful simply for model analysis as well as in deeper questions of portfolio construction; it allows us to draw connections between criteria by pointing out situations in which alternatives who score well in one area tend to score well in another, and so on. We can also group criteria in other ways besides the traditional child-parent alignment, and use the revealed clusters to in turn cluster the alternatives and create our archetypes, as we do in this paper; 
+
+In Section \ref{GenPro}, we explain why football team construction is an ideal use case for this project, introduce the usefulness of clustering alternatives and building position archetypes, and explain the methodology and analysis of our process.
+
+In Section \ref{Implementation}, we explain the details of the R code we created to
+perform the given analysis.
+
+In Section \ref{ABP}, we go through the process discussed in Section \ref{GenPro} for each position.
+
+In Section \ref{Conclusions}, we make some observations about the overall results and look ahead to the next phase of the project, in which we seek patterns and synergies while actually building rosters from these player sets (as well as using simulations to estimate the relative effectiveness of several methods of roster construction).
+
+
+\section{General Process}
+\label{GenPro}
+
+\subsection{Why Football?}
+
+\begin{itemize}
+	\item Building a football team is a cost-constrained activity that requires analyzing and evaluating alternatives (players) both individually and as a team on a series of criteria both qualitative (scouting reports, intangibles) and quantitative. (physical measurements, on-field performance)
+	\item The success of a football team is not determined by the mere sum of the overall talent of its players; there are certain types of players that complement each other better than other types would and certain roster constructions that allow the team to get by with expending fewer resources elsewhere, e.g. a team with a great offensive line can probably get good production from a relatively inexpensive running back and use the savings elsewhere rather than spending more money on an expensive running back.\footnote{For a recent example, consider the Dallas Cowboys. Their excellent offensive line helped running back DeMarco Murray to a star quality season in 2014, after which he was signed to an expensive contract by the rival Philadelphia Eagles. The Eagles' offensive line performed poorly in 2015, leading to a less effective running game; in contrast, Dallas got solid performance out of much cheaper running backs because of their stellar line. Of course, it didn't matter in the end when Tony Romo got injured...}
+	\item It is of course impossible in a real world portfolio evaluation to choose several ideas and examine alternate universes. Football is not perfectly predictable, but the simulation abilities of the Madden video game series allow us to evaluate different team constructions in a reasonably accurate environment.
+	\item Madden also has very detailed player ratings, assigning a score between 1 and 99 to every player on 52 different attributes, from tackling to short pass accuracy to kick power. Ratings collection for criteria is as simple as downloading a publicly available spreadsheet.
+\end{itemize}
+
+\subsection{The Importance of Cluster Analysis And Player Archetypes}
+In the introduction, we touched on the idea that some positions create important synergies with each other that are valuable to understand in constructing rosters. We can go a step further and note that there are valuable differences among players at the same position.\footnote{And, by the same token, differences among any portfolio's alternatives that fit one particular category} For example, some quarterbacks are among the worst athletes on their teams, but are also the most valuable players on their teams because of their incredible poise and accuracy (Tom Brady, Peyton Manning until recently). Some quarterbacks rely on speed and rushing ability to make up for some shortcomings in the more traditional passing areas (Michael Vick, Johnny Manziel). Some quarterbacks are less one-dimensional, whether they are very strong runners who can also pass well (Cam Newton), very strong passers who are still a minor threat to run (Aaron Rodgers), or somewhere in between. (Russell Wilson) 
+
+
+In this paper, we will be using cluster analysis to go a step beyond merely saying how "good" a player is to also evaluate how well he fits a particular archetype at his position. This will in turn allow us to examine nuances of roster construction that could allow for more optimal resource allocation. For example, suppose that a team is choosing between two quarterbacks. Quarterback A is better overall, mostly because he has a much stronger arm, though Quarterback B is a little more mobile. Not surprisingly, he is also more expensive. However, the team has a relatively poor offensive line and their wide receivers catch balls well but do not have gamebreaking speed. Quarterback A's great arm looks fine on paper, but if his slower receivers don't have time to get down the field before the porous offensive line lets in defenders, the team might actually be better off (or at least not that much worse off) with Quarterback B, whose greater elusiveness may help him avoid sacks and get the ball out to closer receivers! They can then use the money saved by opting for B over A to upgrade the offensive line or the defense. We know that portfolio construction is more complicated than simply adding up value and running VROI analyses; we hope that this experiment will help us quantify that understanding better in this instance and provide a springboard to a generalizable nonlinear heuristic for portfolio construction.
+
+
+\subsection{Process}
+
+The following is a holistic explanation of the process from beginning with a raw data set to finishing with a set of archetype grades for each alternative. An in-depth discussion of our R implementation is in \ref{Implementation}.
+
+\subsubsection{Establish Data Set}
+The original data set is the set of all players with all their Madden ratings on every attribute. We first divide this into separate data sets for every position, and then remove irrelevant attributes from each subset (example: Quarterbacks' grades on Tackling are not used).
+\subsubsection{The Importance Of Normalization}
+We normalize player attribute scores such that all players are temporarily assumed to be of equal ability if each attribute is treated as equally important. (Mathematically we are modding out by skill level.)  We do this because when we did not, players ended up clustered primarily by overall ability. We are seeking archetypes so that we can say things like "this player has the characteristics of a running quarterback;" with clusters based in ability we would merely produce a tautological statement like "This good quarterback is good and this bad quarterback is bad." 
+\subsubsection{Clustering Attributes}
+Our end result is to have some simple and easy to understand archetypal score constructions. This would get very unwieldy with the 15-20 relevant attributes each position has. We therefore use two methods to reduce these relevant attributes to 3-5 metafeatures: regression of attribute scores against the Madden overall score, and the covariance matrix of attribute scores. The covariance matrix in particular shows us which attributes are highly correlated with one another and are therefore most useful to combine into a metafeature. For example, attributes like Speed, Acceleration, and Agility are usually highly correlated and can generally be placed into an overall speed-related metafeature.
+\subsubsection{Clustering Players}
+Once we have normalized player scores and clustered the attributes into meta-features, we cluster players to form the positional archetypes. The cluster centers of these player clusters give what can be called a platonic ideal of a certain archetype of player - relatively strong in certain meta-features and weak in others, or however the clustering analysis comes out. 
+\subsubsection{Construct Scores}
+When we have constructed the player archetypes at each position, using the cluster centers and regression against the overall score to weight the meta-features (described in further detail in \ref{Implementation}), we return to the unnormalized player rating data and apply the different archetype meta-feature weights to each player, thereby producing a set of scores: one score per player per positional archetype.
+
+\section{Implementation In R}
+\label{Implementation}
+
+This section contains an explanation of implementing the above concepts in R, with descriptions of the variables created.
+
+\subsection{Collect Data Subset}
+
+The general process for a given position begins with collecting ratings data. We will use GP for the generic position when considering variables (Quarterback variables are QB, etc.)
+
+We read in the list of players and subset the data in two ways: first, by looking at only the rows of players at the selected position, and second, by looking at only the columns that correspond to attributes relevant to playing the selected position.
+
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{MaddenAllPlayers}: Data frame. Rows are all players in the data set, columns are the 52 attributes contained within the Madden rating system. This is the baseline data set of all ratings on all players.
+\item{MaddenGP}: Data frame. Subset of MaddenAllPlayers that refers to the given position.
+\item{GPAttributes}: Vector. Subset of attribute ratings that apply to that position (for example, quarterbacks' evaluations on throwing power are taken into account but not their evaluations on tackling ability).
+\item{GPOriginal}: Data Frame. Rows are players at the given position, columns are the relevant attributes given by GPAttributes.
+\end{itemize}
+
+\subsection{Constructed Normalized Data Set}
+
+Different attributes across different positions have very different spreads that necessitate the use of Z-scores. We first calculate the z-score for each player at the position on each attribute. Obviously, some players are better than others - but we are interested not only in this comparison but also in their relative strengths and weaknesses under the assumption that all players are of equal total ability. We therefore need an adjusted version of these z-scores under the assumption that all players are equal; in order to do this, we add or subtract the quotient of the player's summed up z-scores and the number of attributes from each attribute z-score so that the adjusted z-scores sum to zero. 
+If a player's z-score vector is $\vec{v}$, his normalized z-score vector is $\vec{v}$-$sum(\vec{v})/length(\vec{v})$.
+For example, suppose a player has three attribute z-scores: 1.00, -0.50, and 2.50. His z-scores add up to 3.00, and there are three scores, so in order to normalize him for the purposes of relative comparison we subtract 1 from each of his z-scores, giving him normalized z-scores of 0.00, -1.50, and 1.50.
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{GPmeans}: Vector. The mean scores for each criterion, averaged across all players.
+\item{GPsds}: Vector. The standard deviations for each criterion across all players.
+\item{GPzscores}: Data frame. The z-scores for each player on each criterion, calculated by subtracting the mean score from the player's score and dividing by the standard deviation.
+\item{GProwadjz}: Scalar. The number of criteria needed to make the universal adjustment to make the z-scores for each player sum to 0.
+\item{GPNormzscores}: Data frame. The normalized z-scores, created by taking each overall z-score and subtracting it by the player's summed z-scores divided by GProwadjz.
+\end{itemize}
+
+\subsection{Regression For Significant Criteria}
+
+In this section, we run two separate linear fit regressions of the un-normalized z-scores against the Overall score. First, we regress against all the categories. We then run a second regression in which we first eliminate those categories that do not meet a standard of significant contribution to the overall rating (using the usual 95\% significance threshold). After doing so, we run a second regression against the overall score, using only the significant criteria.
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{GPover}: Vector. Only the overall rating z-score for each player.
+\item{GPfit}: Regression element list. Linear regression of all un-normalized z-scores against overall rating z-score for the players at the selected position. 
+\item{GPReduced}: Vector. The column positions of statistically significant criteria.
+\item{GPreducedfit:} Regression element list. Linear regression of un-normalized z-scores on statistically significant criteria against overall rating z-score.
+\item{GProwadjreduced:} Scalar. The number of statistically significant criteria.
+\item{GPNormReduced:} Data frame. Renormalizing the z-scores based on using only statistically significant criteria.
+\end{itemize}
+
+\subsection{Clustering And Covariance Matrices}
+
+For the rest of the process, we have two distinct groups of datasets, on which we perform similar analyses: the unreduced dataset with all criteria, and the reduced dataset with only those criteria shown to be statistically significant to the overall rating. 
+
+In this section, we construct the covariance matrices for the z-score data frames. This shows us which criteria are most and least closely related to each other, which in turn allows us to use k-means clustering to construct meta-features. For example, for quarterbacks, attributes that have to do with throwing accuracy will correlate very highly with each other and less so with those having to do with speed or strength. With a few exceptions (detailed in section \ref{ABP}), we use 5 clusters for the unreduced dataset and 3 for the reduced dataset.
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{GPcovar}: Data frame. Covariance matrix of scores on all attributes. Rows and columns are the same, both all attributes at the position. For row i and column j, $GPcovar_(ij)$ is the covariance of the scores on attribute i with the scores on attribute j. 
+\item{GPreducedcovar}: Data frame. Covariance matrix of scores on statistically significant attributes. Same format as GPcovar.
+\item{GPcriteriaclusters}: R kmeans object. A list of elements relating to a number of clusters of attributes (usually 5) that are most closely correlated with those in their cluster; also includes the cluster centers, cluster size, and other details relating to the clusters.
+\item{GPreducedcriteriaclusters}: R kmeans object. Same as above, except usually with 3 clusters instead of 5 because only the statistically significant attributes are used.
+\end{itemize}
+
+\subsection{Name, Weight, And Score Feature Clusters}
+
+Having grouped the attributes into meta-features with k-means clustering, we name them based on expert knowledge about their similarities. For example, the cluster in the Unreduced dataset for Wide Receivers containing the attributes Catching, Toughness, Spectacular Catch, and Catch in Traffic is subsumed under the umbrella "Catching." We then assign weights *within* these clusters to the attributes contained within them using the coefficients from the previous regression analysis. If an attribute is negatively correlated with the overall rating, we zero it out. There are two types of clusters (unreduced and reduced) and four datasets (unreduced and reduced, normalized and unnormalized, in each possible combination).
+
+Having assigned weights to each attribute within the meta-features, we give the players normalized and unnormalized scores on the meta-features by producing a weighted average of their scores based on the assigned criteria weights. For example, suppose Attributes A, B, and C within Cluster K have determined weights of 0.5, 0.25, and 0.25, and player I has unnormalized z-scores on A, B, and C of 1.3, 0.3, and 0.3. Player I's unnormalized score on Cluster K will be the weighted average of those scores, or 0.8.
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{GP[GroupDescription]FullReg, FullNorm, ReducedReg, ReducedNorm}: Vector(s). This signifies which attributes are in which named metafeatures for each of the four datasets.
+\item{GP[GroupDescriptionWeights]FullReg, FullNorm, ReducedReg, ReducedNorm}: Vector(s). These are the criteria weights assigned to each attribute within its appropriate metafeature, again for all four datasets (though they will be the same for FullReg/FullNorm and ReducedReg/ReducedNorm).
+\item{GP[GroupDescriptionScores]FullReg, FullNorm, ReducedReg, ReducedNorm}: Data frame(s). These are the scores assigned to each player on each of the four datasets based on the weighted averages of their scores as weighted by the determined weights above.
+\item{GPClusterFullReg, FullNorm, ReducedReg, ReducedNorm}: Data frame(s). This concatenates the data frames above to give all meta-feature scores on each dataset for each player.
+\item{GPClusterNoOverall, GPClusterReducedNoOverall}: Data frame(s). This removes the overall rating from the above datasets and will be used later as a template on which to replace the data with the total scores.
+\end{itemize}
+
+\subsection{Cluster Players Based On Meta-Features And Create Positional Archetypes}
+
+The next step is to run four separate k-means clusterings on our four datasets, this time clustering the players into groups (usually 5) based on their meta-feature scores. This information could be useful in its own right for further analysis of player similarity, but in this case we primarily use it to create the positional archetypes. For positional archetypes we use only the FullNorm and ReducedNorm datasets, so that players are clustered only by their relative strengths and weaknesses and not their absolutes. For example, if we clustered based on absolute strengths and weaknesses, Tom Brady and Cam Newton would likely be placed on the same cluster, as they are two of the best quarterbacks in the league. However, their very different styles of play makes this not a particularly useful comparison; we would merely be saying "good quarterbacks are good, and bad quarterbacks are bad." Constructing positional archetypes based on the normalized clusters allows us to have both good and bad player in the same groups, in which the groups are determined by what stands out most about each player.
+
+What we mean by positional archetypes is that the groups we cluster the players into will have different cluster means around each of the various meta-features, and so we can construct a description based on each clusters set of meta-feature means of what sort of player fits into that cluster. This will be clearer in section \ref{ABP}, but as an example one of the clusters in the unreduced Wide Receiver dataset contains players who are extremely relatively fast but relatively poor in all other attributes; that cluster was given the archetypal name of ``Pure Burners''.
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{GPnclusters}: Scalar. Number of player clusters to be created, usually 5.
+\item{GPkClusterFullReg, FullNorm, ReducedReg, ReducedNorm}: R kmeans object - list of components including clusters, cluster centers, and other details. These four sets of clusters cluster the players based on their relative similarity across the meta-features; in the FullReg and ReducedReg categories, their overall ability matters while in the FullNorm and ReducedNorm categories, it does not. 
+\end{itemize}
+
+\subsection{Regress Metafeature Scores Against Overall Rating For Total Weights}
+
+We now revisit the multiple regression concept from before, this time using the metafeatures to regress against the overall scores instead of all attributes. Our end goal is to give each player a calculated score on each positional archetype. In order to do that, we would like the meta-features that contribute highly to that positional archetype to be more relatively valuable than those that do not, but we do not want to have them be completely determined in this way. As noted above, doing this analysis without grounding it in expert knowledge (in this case, the overall ratings already present) leads to undesirable results in which, for example, Tim Tebow gets a higher score on a running archetype quarterback than Tom Brady. Tebow is indeed a better runner than Brady, but throwing is still more important than running *enough*, even for a running-style quarterback, that it is never appropriate to consider Tebow a superior option.
+
+Our chosen compromise is to have an average between ``standard'' weights and ``cluster'' weights for each archetype. The standard weights are determined from the multiple regression, simply normalizing the coefficients given to the meta-features. The cluster weights are determined by the cluster centers using the inverse of the normal distribution. For a very simple example, if there were an archetype with only two metafeatures, one of which had a center of 1 and the other of which had a center of 0, we would use the inverse normal distribution to set the un-normalized weights of those two metafeatures at 0.84 and 0.5, then normalizing them to 0.627 and 0.373. We then use the average of the standard and cluster weights to determine the meta-feature weights for each archetype.
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{GPreducedmetafit, GPunreducedmetafit}: Regression element list(s). Linear regression of meta-feature scores both reduced and unreduced against the overall rating.
+\item{GPstandardreducedweights, GPstandardunreducedweights}: Vector(s). Standard meta-feature weight based on the results of the linear regression against the overall rating.
+\item{GPclusterreducedweights, GPclusterunreducedweights}: Data frame(s). Cluster meta-feature weights based on using the inverse normal distribution on the cluster means of each archetype.
+\item{GPadjustedreducedweights, GPadjustedunreducedweights}: Data frame(s). Average of each cluster meta-feature weight with the standard weight.
+\end{itemize}
+
+\subsection{Multiply Scores By Weights For Total Archetype Scores}
+
+At this point, we have z-score based scores for each player on each meta-feature, and adjusted meta-feature weights for each archetype. We therefore construct archetype scores for each player on a 0 to 100 scale by multiplying out the meta-feature scores by the meta-feature weights (again, for each archetype) and using the normal distribution (0 translates to 50, etc.). We now have, in addition to the original overall rating, 10 (or fewer, in the case of some positions) archetype scores for each player based on the Reduced and Unreduced archetypes (some of which may be the same). We are ready to begin Phase II: Portfolio Construction (as well as use this data in other ways that are yet to be determined).
+
+\subsubsection{Variables Created}
+
+\begin{itemize}
+\item{GPTotalScoresReduced, GPTotalScoresUnreduced}: Data frame(s). Total scores for each player on each archetype, on a normal distribution based scale from 0 to 100.
+\item{GPTotalScoresReducedWithOVR, GPTotalScoresUnreducedWithOVR}: Data frame(s). The above, but with the overall rating included for comparison.
+\end{itemize}
+
+
+\section{Analysis By Position}
+\label{ABP}
+
+In this section, we present findings related to each position, including the meta-feature clusters and the construction of player archetypes. The full data sets are available in a folder of R Markdown documents (link to that).
+
+\subsection{Summary Of Individual Position Results}
+
+Individual position results contain the following:
+
+\begin{itemize}
+\item The relevant attributes that are determined to potentially apply at a given position.
+\item The statistically significant attributes determined by multiple linear regression against the overall score.
+\item The unreduced and reduced clusters of meta-features, along with the weights used within them.
+\item The unreduced and reduced player archetypes; note that rounding approximations to two digits may make the cluster centers for each archetype not add up to 0, but they do if extended to further decimal places.
+\item The standard and archetype based weights of the unreduced and reduced meta-features.
+\item Some illustrative examples of players that stand out in this analysis.
+\end{itemize}
+
+\subsection{Offense}
+\subsubsection{Centers}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Run Block, Pass Block, Injury, Stamina, Toughness, Impact Block
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Run Block, Pass Block, Toughness, Impact Block
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Pass Blocking}}: Pass Block (98.6), Stamina (1.4), Toughness (0)
+\item{\textbf{Quickness}}: Agility (100)
+\item{\textbf{Run Blocking}}: Awareness (47.8), Run Block (41.5), Impact Block (10.7)
+\item{\textbf{Strength}}: Strength (100)
+\item{\textbf{Speed}}: Speed (55.1), Acceleration (44.9), Injury (0)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed}}: Speed (28.9), Acceleration (24.0), Agility (47.1)
+\item{\textbf{Blocking}}: Awareness (36.8), Run Block (31.8), Pass Block (23.3), Toughness (0), Impact Block (8.1)
+\item{\textbf{Strength}}: Strength (100)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Center Archetypes}
+\label{UnreducedCenter}
+\begin{tabular}{llllll}
+                      & Pass Blocking & Quickness & Run Blocking & Strength & Speed \\
+Athletic Poor Blocker & -0.20         & -0.65     & -0.28        & 0.51     & 0.61  \\
+Quick Run Blocker     & -0.50         & 0.57      & 0.27         & 0.12     & -0.45 \\
+Strong Blocker        & 0.54          & -0.93     & 0.30         & 0.67     & -0.58 \\
+Quick Center          & -0.63         & 1.17      & -0.52        & -0.99    & 0.98  \\
+Pass Blocker          & 0.89          & 0.19      & 0.10         & -0.83    & -0.36
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Center Archetypes}
+\label{ReducedCenter}
+\begin{tabular}{llll}
+                      & Speed & Blocking & Strength \\
+Athletic Poor Blocker & 0.31  & -0.62    & 0.32     \\
+Balanced Center       & 0.26  & 0.15     & -0.41    \\
+Power Center          & -0.67 & 0.19     & 0.86     \\
+Quick Center          & 1.40  & -0.22    & -1.17    \\
+Technique Blocker     & -0.63 & 0.75     & -0.12   
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Center Unreduced Standard And Archetype Weights}
+\label{CenterUnreducedWeights}
+\begin{tabular}{llllll}
+                      & Pass Blocking & Quickness & Run Blocking & Strength & Speed \\
+Standard              & 20.0          & 3.2       & 65.3         & 7.5      & 4.0   \\
+Athletic Poor Blocker & 18.4          & 6.8       & 40.4         & 17.7     & 16.6  \\
+Balanced Center       & 16.1          & 15.9      & 44.8         & 14.7     & 8.5   \\
+Strong Blocker        & 23.9          & 5.1       & 44.8         & 18.6     & 7.6   \\
+Quick Center          & 15.4          & 19.6      & 38.8         & 7.1      & 19.2  \\
+Pass Blocker          & 26.3          & 13.1      & 43.5         & 7.9      & 9.2  
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Center Reduced Standard And Archetype Weights}
+\label{CenterReducedWeights}
+\begin{tabular}{llllll}
+                      & Pass Blocking & Quickness & Run Blocking & Strength & Speed \\
+Standard              & 20.0          & 3.2       & 65.3         & 7.5      & 4.0   \\
+Athletic Poor Blocker & 18.4          & 6.8       & 40.4         & 17.7     & 16.6  \\
+Balanced Center       & 16.1          & 15.9      & 44.8         & 14.7     & 8.5   \\
+Strong Blocker        & 23.9          & 5.1       & 44.8         & 18.6     & 7.6   \\
+Quick Center          & 15.4          & 19.6      & 38.8         & 7.1      & 19.2  \\
+Pass Blocker          & 26.3          & 13.1      & 43.5         & 7.9      & 9.2  
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+
+\subsubsection{Fullbacks}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Catching, Carrying, Run Block, Pass Block, Jumping, Injury, Stamina, Toughness, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Impact Block, Spectacular Catch, Catch In Traffic, Route Running
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Agility, Awareness, Catching, Carrying, Run Block, Pass Block, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Impact Block
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Power Running}}: Carrying (27.8), Pass Block (28.0), Injury (0), Stamina (0.5), Toughness (0.3), Trucking (26.8), Stiff Arm (16.5)
+\item{\textbf{Blocking}}: Strength (6.6), Run Block (55.0), Impact Block (38.4)
+\item{\textbf{Awareness}}: Awareness (100)
+\item{\textbf{Receiving}}: Catching (27.9), Elusiveness (24.7), Ball Carrier Vision (30.3), Spin Move (0), Juke Move (5.1), Spectacular Catch (0), Catch In Traffic (11.9), Route Running (0)
+\item{\textbf{Speed Running}}: Speed (49.3), Acceleration (31.1), Agility (17.4), Jumping (2.1)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Running}}: Speed (27.4), Acceleration (20.9), Agility (9.5), Elusiveness (21.4), Ball Carrier Vision (20.8), Spin Move (0)
+\item{\textbf{Receiving}}: Catching (16.7), Carrying (34.6), Trucking (31.5), Stiff Arm (17.1)
+\item{\textbf{Blocking}}: Strength (3.2), Awareness (41.5), Run Block (27.7), Pass Block (8.6), Impact Block (19.1)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Fullback Archetypes}
+\label{UnreducedFullback}
+\begin{tabular}{llllll}
+                  & Power Running & Blocking & Awareness & Receiving & Speed Running \\
+Awareness Blocker & 0.11          & 0.61     & 0.99      & -0.47     & -1.24         \\
+Balanced FB       & 0.10          & 0.17     & -0.47     & -0.11     & 0.31          \\
+Pure Blocker      & -0.47         & 0.70     & 0.35      & -0.35     & -0.24         \\
+Receiving FB      & -0.22         & -1.17    & 0.09      & 0.69      & 0.62          \\
+Playmaker         & 0.69          & -0.77    & -1.28     & 0.55      & 0.81         
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Fullback Archetypes}
+\label{ReducedFullback}
+\begin{tabular}{llll}
+               & Running & Receiving & Blocking \\
+Pure Blocker   & -0.89   & -0.22     & 1.11     \\
+Receiving FB   & -0.55   & 0.63      & -0.07    \\
+Blocker Runner & 0.05    & -0.49     & 0.44     \\
+Balanced FB    & 0.20    & 0.02      & -0.22    \\
+Playmaker      & 0.72    & 0.32      & -1.04   
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Fullback Unreduced Standard And Archetype Weights}
+\label{FullbackUnreducedWeights}
+\begin{tabular}{llllll}
+                  & Power Running & Blocking & Awareness & Receiving & Speed Running \\
+Standard          & 20.9          & 34.0     & 28.5      & 8.7       & 7.8           \\
+Awareness Blocker & 21.2          & 31.4     & 30.8      & 10.6      & 6.0           \\
+Balanced FB       & 21.3          & 28.4     & 20.7      & 13.4      & 16.3          \\
+Pure Blocker      & 16.9          & 32.3     & 27.1      & 11.6      & 12.1          \\
+Receiving FB      & 18.5          & 19.4     & 24.7      & 19.1      & 18.2          \\
+Playmaker         & 25.1          & 21.3     & 16.2      & 18.1      & 19.3         
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Fullback Reduced Standard And Archetype Weights}
+\label{FullbackReducedWeights}
+\begin{tabular}{llll}
+               & Running & Receiving & Blocking \\
+Standard       & 13.5    & 17.7      & 68.7     \\
+Pure Blocker   & 13.2    & 22.9      & 63.9     \\
+Receiving FB   & 16.5    & 33.4      & 50.1     \\
+Blocker Runner & 24.1    & 19.2      & 56.7     \\
+Balanced FB    & 26.1    & 25.8      & 48.1     \\
+Playmaker      & 31.6    & 29.2      & 39.2    
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+
+\subsubsection{Offensive Guards}
+
+For Offensive Guards, we only used 4 unreduced clusters.
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Run Block, Pass Block, Injury, Stamina, Toughness, Impact Block
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Run Block, Pass Block, Impact Block
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Awareness}}: Awareness (100)
+\item{\textbf{Speed}}: Speed (14.0), Acceleration (34.2), Agility (51.7)
+\item{\textbf{Blocking}}: Strength (14.2), Run Block (25.1), Pass Block (45.5), Stamina (1.1), Impact Block (14.0)
+\item{\textbf{Toughness}}: Injury (100), Toughness (0)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Run Blocking}}: Run Block (64.1), Impact Block (35.9)
+\item{\textbf{Pass Blocking}}: Strength (12.5), Awareness (46.8), Pass Block (40.8)
+\item{\textbf{Speed}}: Speed (13.1), Acceleration (33.9), Agility (53.0)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Offensive Guard Archetypes}
+\label{UnreducedOffensiveGuard}
+\begin{tabular}{lllll}
+              & Awareness & Speed & Blocking & Toughness \\
+Pulling Guard & -1.11     & 0.79  & -0.18    & 0.50      \\
+Power Blocker & 1.01      & -0.77 & 0.25     & -0.49     \\
+Balanced OG   & 0.08      & 0.32  & -0.29    & -0.11     \\
+Fast Blocker  & 0.36      & 0.66  & 0.44     & -1.47     \\
+Tough Blocker & -0.15     & -0.51 & -0.03    & 0.69     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Offensive Guard Archetypes}
+\label{ReducedOffensiveGuard}
+\begin{tabular}{llll}
+              & Run Blocking & Pass Blocking & Speed \\
+Pulling Guard & -0.49        & -0.74         & 1.23  \\
+Pass Blocker  & -0.45        & 0.97          & -0.52 \\
+Balanced OG   & -0.20        & -0.07         & 0.28  \\
+Run Blocker   & 0.70         & -0.41         & -0.29 \\
+Power Blocker & 0.52         & 0.26          & -0.78
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Offensive Guard Unreduced Standard And Archetype Weights}
+\label{OffensiveGuardUnreducedWeights}
+\begin{tabular}{lllll}
+              & Awareness & Speed & Blocking & Toughness \\
+Standard      & 30.4      & 11.5  & 57.8     & 0.3       \\
+Pulling Guard & 18.5      & 25.0  & 39.4     & 17.1      \\
+Pass Blocker  & 36.6      & 11.3  & 44.0     & 8.0       \\
+Balanced OG   & 28.5      & 21.3  & 38.6     & 11.6      \\
+Run Blocker   & 30.3      & 23.2  & 44.7     & 1.8       \\
+Power Blocker & 26.3      & 13.4  & 41.2     & 19.1     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Offensive Guard Reduced Standard And Archetype Weights}
+\label{OffensiveGuardReducedWeights}
+\begin{tabular}{llll}
+              & Run Blocking & Pass Blocking & Speed \\
+Standard      & 22.8         & 65.5          & 11.7  \\
+Pulling Guard & 22.3         & 40.8          & 37.0  \\
+Pass Blocker  & 25.3         & 61.3          & 16.2  \\
+Balanced OG   & 25.3         & 48.5          & 26.2  \\
+Run Blocker   & 36.9         & 44.2          & 18.8  \\
+Power Blocker & 34.4         & 52.6          & 13.0 
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+
+\subsubsection{Offensive Tackles}
+
+For Offensive Tackles, we only used 4 unreduced clusters and 2 unreduced clusters.
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Run Block, Pass Block, Injury, Stamina, Toughness, Impact Block
+
+\textbf{Statistically Significant Attributes}: Awareness, Run Block, Pass Block
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Run Blocking}}: Strength (8.3), Run Block (91.7)
+\item{\textbf{Pass Blocking}}: Agility (0), Pass Block (78.5), Stamina (14.0), Impact Block (7.5)
+\item{\textbf{Awareness}}: Awareness (100)
+\item{\textbf{Speed}}: Speed (76.1), Acceleration (0), Injury (23.9)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Pass Blocking}}: Awareness (54.0), Pass Block (46.0)
+\item{\textbf{Run Blocking}}: Run Block (100)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Offensive Tackle Archetypes}
+\label{UnreducedOffensiveTackle}
+\begin{tabular}{lllll}
+                            & Run Blocking & Pass Blocking & Awareness & Speed \\
+High Awareness Run Blocker  & 0.03         & -0.41         & 0.58      & -0.20 \\
+Power Run Blocker           & 1.04         & -0.32         & -0.12     & -0.60 \\
+Fast Run Blocker            & 0.39         & -0.52         & -0.58     & 0.71  \\
+High Awareness Pass Blocker & -0.30        & 0.69          & 0.49      & -0.89 \\
+Fast Pass Blocker           & -0.68        & 0.39          & -0.29     & 0.59 
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Offensive Tackle Archetypes}
+\label{ReducedOffensiveTackle}
+\begin{tabular}{lll}
+                      & Pass Blocking & Run Blocking \\
+Extreme Run Blocker   & -0.80         & 0.80         \\
+Moderate Run Blocker  & -0.42         & 0.42         \\
+Balanced Tackle       & -0.06         & 0.06         \\
+Extreme Pass Blocker  & 0.86          & -0.86        \\
+Moderate Pass Blocker & 0.35          & -0.35       
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Offensive Tackle Unreduced Standard And Archetype Weights}
+\label{OffensiveTackleUnreducedWeights}
+\begin{tabular}{lllll}
+                            & Run Blocking & Pass Blocking & Awareness & Speed \\
+Standard                    & 30.8         & 35.3          & 31.9      & 2.0   \\
+High Awareness Run Blocker  & 28.3         & 26.1          & 34.0      & 11.5  \\
+Power Run Blocker           & 37.2         & 27.3          & 27.5      & 8.0   \\
+Fast Run Blocker            & 31.7         & 25.2          & 23.0      & 20.1  \\
+High Awareness Pass Blocker & 24.9         & 36.4          & 33.1      & 5.6   \\
+Fast Pass Blocker           & 21.5         & 33.9          & 25.6      & 19.0 
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Offensive Tackle Reduced Standard And Archetype Weights}
+\label{OffensiveTackleReducedWeights}
+\begin{tabular}{lll}
+                      & Pass Blocking & Run Blocking \\
+Standard              & 67.7          & 32.3         \\
+Extreme Run Blocker   & 44.5          & 55.5         \\
+Moderate Run Blocker  & 50.7          & 49.3         \\
+Balanced Tackle       & 57.7          & 42.3         \\
+Extreme Pass Blocker  & 74.2          & 25.8         \\
+Moderate Pass Blocker & 65.6          & 34.4        
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Quarterbacks}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Carrying, Throw Power, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Injury, Stamina, Toughness, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Play Action, Throw On The Run
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Agility, Awareness, Throw Power, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Play Action, Throw On The Run
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Running QB}}: Speed (60.6), Acceleration (17.9), Carrying (0), Throw On The Run (21.4)
+\item{\textbf{Awareness}}: Awareness (76.3), Play Action (23.7)
+\item{\textbf{Throwing}}: Strength (0.5), Throw Power (28.9), Throw Accuracy Short (26.2), Throw Accuracy Mid (28.1), Throw Accuracy Deep (15.4), Injury (0.3), Stamina (0), Toughness (0.6)
+\item{\textbf{Fast Run}}: Elusiveness (4.3), Ball Carrier Vision (0), Spin Move (0), Juke Move (95.7)
+\item{\textbf{Power Run}}: Agility (94.2), Trucking (5.8), Stiff Arm (0)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Scrambling}}: Speed (48.9), Acceleration (14.2), Agility (36.8)
+\item{\textbf{Accuracy}}: Awareness (45.3), Throw Accuracy Short (15.2), Throw Accuracy Mid (16.6), Throw Accuracy Deep (9.0), Play Action (13.9)
+\item{\textbf{Deep Ball}}: Throw Power (47.7), Throw On The Run (52.3)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Quarterback Archetypes}
+\label{UnreducedQuarterback}
+\begin{tabular}{llllll}
+                        & Running QB & Awareness & Throwing & Fast Run & Power Run \\
+Scrambler               & 0.45       & -1.07     & -0.78    & 0.70     & 0.71      \\
+Low Awareness Balanced  & 0.17       & -0.32     & 0.16     & -0.09    & 0.08      \\
+West Coast              & -0.29      & 0.99      & 0.59     & -0.85    & -0.44     \\
+Pocket Passer           & -1.28      & 1.66      & 1.25     & -0.34    & -1.28     \\
+High Awareness Balanced & -0.15      & 0.51      & -0.22    & 0.09     & -0.23    
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Quarterback Archetypes}
+\label{ReducedQuarterback}
+\begin{tabular}{llll}
+                    & Scrambling & Accuracy & Deep Ball \\
+Scrambler           & 0.88       & -0.90    & 0.03      \\
+Mobile Deep Thrower & 0.25       & -0.25    & 0.00      \\
+West Coast          & -0.11      & 0.51     & -0.40     \\
+Pocket Passer       & -1.44      & 1.38     & 0.07      \\
+Big Arm             & -0.53      & 0.09     & 0.44     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Quarterback Unreduced Standard And Archetype Weights}
+\label{QuarterbackUnreducedWeights}
+\begin{tabular}{llllll}
+                        & Running QB & Awareness & Throwing & Fast Run & Power Run \\
+Standard                & 6.9        & 45.3      & 44.7     & 0.3      & 2.8       \\
+Scrambler               & 16.6       & 25.4      & 26.6     & 15.0     & 16.3      \\
+Low Awareness Balanced  & 14.8       & 30.1      & 33.5     & 9.4      & 12.1      \\
+West Coast              & 11.3       & 39.6      & 37.0     & 4.1      & 8.1       \\
+Pocket Passer           & 5.5        & 42.4      & 40.9     & 7.8      & 3.5       \\
+High Awareness Balanced & 12.2       & 36.6      & 30.7     & 10.9     & 9.6      
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Quarterback Reduced Standard And Archetype Weights}
+\label{QuarterbackReducedWeights}
+\begin{tabular}{llll}
+                    & Scrambling & Accuracy & Deep Ball \\
+Standard            & 4.7        & 77.7     & 17.6      \\
+Scrambler           & 29.3       & 44.9     & 25.8      \\
+Mobile Deep Thrower & 22.3       & 52.2     & 25.4      \\
+West Coast          & 17.6       & 62.0     & 20.3      \\
+Pocket Passer       & 4.8        & 69.0     & 26.1      \\
+Big Arm             & 12.3       & 56.6     & 31.0     
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Running Backs}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Catching, Carrying, Pass Block, Jumping, Injury, Stamina, Toughness, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Impact Block, Spectacular Catch, Catch In Traffic, Route Running
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Agility, Awareness, Catching, Carrying, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Route Running
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Pass Catching}}: Spectacular Catch (0), Catch In Traffic (22.4), Route Running (77.6)
+\item{\textbf{Power Running}}: Trucking (82.0), Stiff Arm (18.0)
+\item{\textbf{Awareness}}: Strength (7.7), Awareness (61.4), Carrying (30.2), Pass Block (0.6), Toughness (0)
+\item{\textbf{Speed Running}}: Speed (19.9), Acceleration (8.6), Agility (22.4), Jumping (0), Injury (0), Stamina (0), Ball Carrier Vision (37.0), Spin Move (12.0)
+\item{\textbf{Shiftiness}}: Elusiveness, (75.1), Juke Move (24.9)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed Running}}: Speed (17.8), Acceleration (7.8), Agility (19.0), Elusiveness (41.4), Juke Move (13.9)
+\item{\textbf{Awareness And Receiving}}: Awareness (53.9), Catching (5.9), Ball Carrier Vision (26.7), Spin Move (8.5), Route Running (5.1)
+\item{\textbf{Power Running}}: Strength (7.6), Carrying (30.6), Trucking (50.4), Stiff Arm (11.3)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Running Back Archetypes}
+\label{UnreducedRunningBack}
+\begin{tabular}{llllll}
+                   & Pass Catching & Power Running & Awareness & Speed Running & Shiftiness \\
+Pure Speed Back    & -0.79         & -0.68         & -0.13     & 0.66          & 0.93       \\
+Backfield Receiver & 0.76          & -1.62         & -0.27     & 0.39          & 0.73       \\
+Balanced HB        & 0.36          & -0.35         & -0.29     & -0.11         & 0.39       \\
+Goal Line Back     & 0.49          & 0.72          & 0.34      & -0.55         & -0.99      \\
+Power Running Back & -0.70         & 0.99          & 0.22      & -0.05         & -0.46     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Running Back Archetypes}
+\label{ReducedRunningBack}
+\begin{tabular}{llll}
+                   & Speed Running & Awareness And Receiving & Power Running \\
+Balanced HB        & 0.23          & 0.03                    & -0.25         \\
+Backfield Receiver & 0.61          & 0.57                    & -1.18         \\
+Pure Speed Back    & 1.11          & -0.24                   & -0.88         \\
+Power Running Back & -0.20         & -0.46                   & 0.65          \\
+Goal Line Back     & -0.94         & 0.20                    & 0.73         
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Running Back Unreduced Standard And Archetype Weights}
+\label{RunningBackUnreducedWeights}
+\begin{tabular}{llllll}
+                   & Pass Catching & Power Running & Awareness & Speed Running & Shiftiness \\
+Standard           & 3.6           & 19.8          & 32.5      & 27.0          & 17.0       \\
+Pure Speed Back    & 6.1           & 14.9          & 25.3      & 28,5          & 25.1       \\
+Backfield Receiver & 16.5          & 10.9          & 23.7      & 25.8          & 23.0       \\
+Balanced HB        & 14.6          & 17.2          & 24.0      & 22.6          & 21.5       \\
+Goal Line Back     & 15.3          & 25.0          & 28.7      & 19.2          & 11.7       \\
+Power Running Back & 6.7           & 26.9          & 28.2      & 23.2          & 15.0      
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Running Back Reduced Standard And Archetype Weights}
+\label{RunningBackReducedWeights}
+\begin{tabular}{llll}
+                   & Speed Running & Awareness And Receiving & Power Running \\
+Standard           & 30.5          & 37.0                    & 32.4          \\
+Balanced HB        & 34.9          & 35.6                    & 29.5          \\
+Backfield Receiver & 38.6          & 41.4                    & 20.0          \\
+Pure Speed Back    & 44.9          & 32.4                    & 22.7          \\
+Power Running Back & 29.4          & 29.4                    & 41.2          \\
+Goal Line Back     & 21.0          & 37.6                    & 41.4         
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Tight Ends}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Catching, Carrying, Run Block, Pass Block, Jumping, Injury, Stamina, Toughness, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Impact Block, Spectacular Catch, Catch In Traffic, Route Running, Release
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Agility, Awareness, Catching, Carrying, Run Block, Pass Block, Jumping, Stamina, Toughness, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Impact Block, Spectacular Catch, Catch In Traffic, Route Running, Release
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Power Running}}: Trucking (16.8), Ball Carrier Vision (23.3), Stiff Arm (11.4), Spin Move (15.7), Juke Move (9.3), Release (23.5)
+\item{\textbf{Blocking}}: Strength (19.0), Run Block (43.0), Pass Block (17.1), Injury (0), Toughness (0), Impact Block (20.8)
+\item{\textbf{Catching}}: Catching (18.7), Jumping (6.0), Elusiveness (9.2), Spectacular Catch (14.5), Catch In Traffic (22.6), Route Running (29.0)
+\item{\textbf{Speed Running}}: Speed (37.8), Acceleration (21.9), Agility (26.3), Carrying (14.0), Stamina (0)
+\item{\textbf{Awareness}}: Awareness (100) 
+
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Routes}}: Carrying (11.0), Stamina (0), Route Running (89.0)
+\item{\textbf{Blocking}}: Strength (10.1), Awareness (46.7), Run Block (22.9), Pass Block (9.1), Toughness (0), Impact Block (11.1)
+\item{\textbf{Speed And Skill}}: Speed (7.1), Acceleration (4.1), Agility (4.9), Catching (13.7), Jumping (4.4), Trucking (5.4), Elusiveness (6.7), Ball Carrier Vision (7.4), Stiff Arm (3.7), Spin Move (5.0), Juke Move (3.0), Spectacular Catch (10.6), Catch In Traffic (16.5), Release (7.5)
+
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Tight End Archetypes}
+\label{UnreducedTightEnd}
+\begin{tabular}{llllll}
+                           & Power Running & Blocking & Catching & Speed Running & Awareness \\
+Balanced Blocking TE       & 0.04          & 0.81     & -0.29    & -0.17         & -0.39     \\
+High Awareness Blocking TE & -1.29         & 1.29     & -0.69    & -0.70         & 1.40      \\
+Receiving TE               & 0.16          & -1.02    & 0.42     & 0.22          & 0.22      \\
+Run After Catch TE         & 0.53          & -0.30    & 0.22     & 0.66          & -1.11     \\
+Balanced TE                & -0.06         & 0.04     & -0.07    & -0.52         & 0.61     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Tight End Archetypes}
+\label{ReducedTightEnd}
+\begin{tabular}{llll}
+             & Routes & Blocking & Speed And Skill \\
+Receiving TE & 0.13   & -0.50    & 0.36            \\
+Blocking TE  & -0.31  & 1.27     & -0.96           \\
+Carrying TE  & 0.65   & -0.77    & 0.12            \\
+Athletic TE  & -0.52  & -0.10    & 0.62            \\
+Balanced TE  & 0.00   & 0.27     & -0.27          
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Tight End Unreduced Standard And Archetype Weights}
+\label{TightEndUnreducedWeights}
+\begin{tabular}{llllll}
+                           & Power Running & Blocking & Catching & Speed Running & Awareness \\
+Standard                   & 16.4          & 19.5     & 37.3     & 9.7           & 17.1      \\
+Balanced Blocking TE       & 18.6          & 25.8     & 26.5     & 13.6          & 15.6      \\
+High Awareness Blocking TE & 10.2          & 28.5     & 23.7     & 9.9           & 27.7      \\
+Receiving TE               & 19.2          & 12.8     & 31.6     & 16.3          & 20.0      \\
+Run After Catch TE         & 22.0          & 17.3     & 30.2     & 19.4          & 11.2      \\
+Balanced TE                & 17.7          & 20.1     & 28.1     & 10.9          & 23.1     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Tight End Reduced Standard And Archetype Weights}
+\label{TightEndReducedWeights}
+\begin{tabular}{llll}
+             & Routes & Blocking & Speed And Skill \\
+Standard     & 12.1   & 36.6     & 51.2            \\
+Receiving TE & 24.5   & 28.6     & 46.9            \\
+Blocking TE  & 19.1   & 49.4     & 31.5            \\
+Carrying TE  & 30.7   & 25.6     & 43.7            \\
+Athletic TE  & 16.1   & 33.7     & 50.2            \\
+Balanced TE  & 22.8   & 38.5     & 38.8           
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Wide Receivers}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Catching, Carrying, Jumping, Injury, Stamina, Toughness, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Impact Block, Spectacular Catch, Catch In Traffic, Route Running, Release
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Agility, Awareness, Catching, Carrying, Jumping, Trucking, Elusiveness, Ball Carrier Vision, Stiff Arm, Spin Move, Juke Move, Spectacular Catch, Catch In Traffic, Route Running, Release
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Receiver Awareness}}: Awareness (52.4), Route Running (47.6)
+\item{\textbf{Catching}}: Catching (44.6), Toughness (0), Spectacular Catch (18.1), Catch In Traffic (37.3)
+\item{\textbf{Power Running}}: Strength (15.3), Trucking (10.2), Stiff Arm (7.7), Release (66.7)
+\item{\textbf{Shiftiness}}: Elusiveness (88.6), Juke Move (11.4)
+\item{\textbf{Speed Running}}: Speed (29.4), Acceleration (13.7), Agility (16.4), Carrying (15.0), Jumping (10.9), Injury (0), Stamina (0), Ball Carrier Vision (10.8), Spin Move (3.7)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Receiving}}: Awareness (31.8), Catching (16.2), Jumping (3.0), Spectacular Catch (6.6), Catch In Traffic (13.6), Route Running (28.8)
+\item{\textbf{Power Running}}: Strength (13.5), Carrying (11.7), Trucking (9.0), Stiff Arm (6.8), Release (58.9)
+\item{\textbf{Speed Running}}: Speed (27.2), Acceleration (12.6), Agility (15.1), Elusiveness (28.0), Ball Carrier Vision (10.0), Spin Move (3.4), Juke Move (3.6)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Wide Receiver Archetypes}
+\label{UnreducedWideReceiver}
+\begin{tabular}{llllll}
+                    & Receiver Awareness & Catching & Power Running & Shiftiness & Speed Running \\
+Pass Catcher        & 0.54               & 0.26     & -0.50         & 0.17       & -0.47         \\
+Pure Burner         & -0.13              & -0.47    & -0.80         & 0.96       & 0.43          \\
+Power Running WR    & -0.70              & 0.24     & 0.91          & -0.71      & 0.25          \\
+Balanced WR         & -0.17              & -0.28    & 0.36          & -0.05      & 0.14          \\
+Possession Receiver & 0.58               & 0.71     & 0.77          & -1.33      & -0.73        
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Wide Receiver Archetypes}
+\label{ReducedWideReceiver}
+\begin{tabular}{llll}
+                    & Receiving & Power Running & Speed Running \\
+Pass Catcher        & 0.60      & -0.56         & -0.04         \\
+Pure Burner         & -0.20     & -0.74         & 0.94          \\
+Power Running WR    & -0.63     & 0.64          & -0.01         \\
+Balanced WR         & -0.01     & 0.05          & -0.04         \\
+Possession Receiver & 0.43      & 0.68          & -1.11        
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Wide Receiver Unreduced Standard And Archetype Weights}
+\label{WideReceiverUnreducedWeights}
+\begin{tabular}{llllll}
+                    & Receiver Awareness & Catching & Power Running & Shiftiness & Speed Running \\
+Standard            & 36.4               & 21.9     & 19.1          & 5.8        & 16.8          \\
+Pass Catcher        & 32.2               & 23.0     & 15.7          & 14.3       & 14.8          \\
+Pure Burner         & 27.2               & 17.4     & 13.8          & 19.7       & 21.9          \\
+Power Running WR    & 23.0               & 22.9     & 26.0          & 7.7        & 20.4          \\
+Balanced WR         & 26.9               & 18.8     & 22.3          & 12.5       & 19.5          \\
+Possession Receiver & 32.1               & 25.7     & 24.6          & 4.7        & 12.9         
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Wide Receiver Reduced Standard And Archetype Weights}
+\label{WideReceiverReducedWeights}
+\begin{tabular}{llll}
+                    & Receiving & Power Running & Speed Running \\
+Standard            & 60.1      & 21.6          & 18.3          \\
+Pass Catcher        & 54.3      & 20.4          & 25.3          \\
+Pure Burner         & 44.4      & 18.5          & 37.1          \\
+Power Running WR    & 38.9      & 35.5          & 25.6          \\
+Balanced WR         & 46.5      & 28.2          & 25.3          \\
+Possession Receiver & 51.5      & 35.1          & 13.4         
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsection{Defense}
+\subsubsection{Cornerbacks}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Catching, Tackle, Jumping, Injury, Stamina, Toughness, Play Recognition, Man Coverage, Zone Coverage, Hit Power, Press
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Jumping, Stamina, Play Recognition, Man Coverage, Zone Coverage, Press
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Awareness}}: Awareness (100)
+\item{\textbf{Zone Coverage}}: Strength (15.6), Tackle (32.6), Toughness (0.8), Zone Coverage (51.0)
+\item{\textbf{Man Coverage}}: Speed (16.8), Acceleration (14.8), Agility (6.6), Catching (0.4), Jumping (7.7), Injury (0.9), Stamina (0), Man Coverage (52.8)
+\item{\textbf{Play Recognition}}: Play Recognition (100)
+\item{\textbf{Press Coverage}}: Hit Power (0), Press (100)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed}}: Speed (36.3), Acceleration (32.6), Agility (14.3), Jumping (16.8)
+\item{\textbf{Coverage}}: Awareness (39.6), Stamina (0), Play Recognition (22.4), Man Coverage (25.2), Zone Coverage (12.8)
+\item{\textbf{Power}}: Strength (15.3), Tackle (31.7), Press (53.0)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Cornerback Archetypes}
+\label{UnreducedCornerback}
+\begin{tabular}{llllll}
+                      & Awareness & Zone Coverage & Man Coverage & Play Recognition & Press Coverage \\
+Balanced CB           & -0.05     & -0.13         & 0.00         & -0.25            & 0.43           \\
+Cover 2               & 0.25      & 0.18          & -0.85        & 0.31             & 0.11           \\
+Weak High Aware CB    & 0.65      & -0.30         & 0.11         & 0.48             & -0.94          \\
+Man Cover CB          & -0.21     & -0.07         & 0.67         & 0.20             & -0.59          \\
+Physical Low Aware CB & -0.78     & 0.43          & 0.14         & -0.83            & 1.04          
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Cornerback Archetypes}
+\label{ReducedCornerback}
+\begin{tabular}{llll}
+                   & Speed & Coverage & Power \\
+Slow Cover CB      & -1.00 & 0.92     & 0.08  \\
+Balanced CB        & -0.45 & 0.07     & 0.38  \\
+Speed CB           & 0.43  & -0.29    & -0.14 \\
+Fast Cover CB      & 0.56  & 0.25     & -0.81 \\
+Strong Tackling CB & 0.23  & -0.83    & 0.60 
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Cornerback Unreduced Standard And Archetype Weights}
+\label{CornerbackUnreducedWeights}
+\begin{tabular}{llllll}
+                      & Awareness & Zone Coverage & Man Coverage & Play Recognition & Press Coverage \\
+Standard              & 26.8      & 16.8          & 32.2         & 15.1             & 9.1            \\
+Balanced CB           & 23.0      & 17.4          & 26.2         & 15.6             & 17.9           \\
+Cover 2               & 25.2      & 19.6          & 20.0         & 19.9             & 15.3           \\
+Weak High Aware CB    & 28.1      & 16.0          & 26.9         & 21.1             & 8.0            \\
+Man Cover CB          & 21.8      & 17.8          & 31.1         & 19.2             & 10.1           \\
+Physical Low Aware CB & 17.8      & 21.8          & 27.3         & 11.6             & 21.6          
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Cornerback Reduced Standard And Archetype Weights}
+\label{CornerbackReducedWeights}
+\begin{tabular}{llll}
+                   & Speed & Coverage & Power \\
+Standard           & 14.8  & 67.9     & 17.3  \\
+Slow Cover CB      & 12.7  & 61.1     & 26.2  \\
+Balanced CB        & 18.3  & 51.5     & 30.2  \\
+Speed CB           & 29.7  & 46.8     & 23.5  \\
+Fast Cover CB      & 30.9  & 53.7     & 15.5  \\
+Strong Tackling CB & 26.9  & 40.6     & 32.5 
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Defensive Ends}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Injury, Stamina, Toughness, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Hit Power
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Stamina, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Hit Power
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed}}: Speed (30.2), Acceleration (37.4), Agility (32.4)
+\item{\textbf{Awareness}}: Awareness (68.5), Play Recognition (31.5)
+\item{\textbf{Open Field}}: Injury (3.2), Stamina (0), Toughness (1.7), Pursuit (72.1), Hit Power (23.0)
+\item{\textbf{Finesse Pass Rushing}}: Finesse Moves (100)
+\item{\textbf{Power Pass Rushing}}: Strength (11.6), Tackle (22.1), Power Moves (37.8), Block Shedding (28.5)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed Pass Rushing}}: Speed (13.8), Acceleration (17.4), Agility (14.9), Finesse Moves (53.9)
+\item{\textbf{Power Pass Rushing}}: Strength (5.6), Awareness (35.6), Tackle (10.6), Power Moves (18.2), Block Shedding (13.7), Play Recognition (16.3)
+\item{\textbf{Open Field}}: Stamina (0), Pursuit (75.9), Hit Power (24.1)
+
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Defensive End Archetypes}
+\label{UnreducedDefensiveEnd}
+\begin{tabular}{llllll}
+                   & Speed & Awareness & Open Field & Finesse Pass Rushing & Power Pass Rushing \\
+Power Speed Hybrid & 0.92  & -0.59     & -0.59      & -0.06                & 0.32               \\
+Finesse Rusher     & -0.04 & 0.11      & 0.11       & 1.06                 & -1.24              \\
+Speed Rusher       & 1.24  & -0.92     & -0.92      & 1.39                 & -0.77              \\
+Power Rusher       & -1.02 & 0.74      & 0.74       & -0.90                & 0.44               \\
+Balanced DE        & -0.22 & 0.08      & 0.08       & -0.31                & 0.36              
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Defensive End Archetypes}
+\label{ReducedDefensiveEnd}
+\begin{tabular}{llll}
+               & Speed Pass Rushing & Power Pass Rushing & Open Field \\
+Speed Rusher   & 0.93               & -0.41              & -0.52      \\
+Power Rusher   & -0.03              & 0.40               & -0.37      \\
+Open Field End & 0.91               & -1.22              & 0.31       \\
+Power Hitter   & -0.83              & 0.56               & 0.26       \\
+Balanced DE    & -0.10              & -0.26              & 0.36      
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Defensive End Unreduced Standard And Archetype Weights}
+\label{DefensiveEndUnreducedWeights}
+\begin{tabular}{llllll}
+                   & Speed & Awareness & Open Field & Finesse Pass Rushing & Power Pass Rushing \\
+Standard           & 14.8  & 32.3      & 5.0        & 17.8                 & 30.1               \\
+Power Speed Hybrid & 24.0  & 21.8      & 8.1        & 18.5                 & 27.7               \\
+Finesse Rusher     & 17.0  & 26.9      & 13.2       & 25.8                 & 17.2               \\
+Speed Rusher       & 26.1  & 19.9      & 6.2        & 28.1                 & 19.7               \\
+Power Rusher       & 10.4  & 31.3      & 17.6       & 12.5                 & 28.2               \\
+Balanced DE        & 15.7  & 26.8      & 13.2       & 16.5                 & 27.9              
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Defensive End Reduced Standard And Archetype Weights}
+\label{DefensiveEndReducedWeights}
+\begin{tabular}{llll}
+               & Speed Pass Rushing & Power Pass Rushing & Open Field \\
+Standard       & 32.7               & 62.6               & 4.7        \\
+Speed Rusher   & 44.5               & 42.9               & 12.7       \\
+Power Rusher   & 32.7               & 53.1               & 14.2       \\
+Open Field End & 42.7               & 34.9               & 22.4       \\
+Power Hitter   & 23.1               & 54.7               & 22.2       \\
+Balanced DE    & 31.7               & 44.5               & 23.8      
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Defensive Tackles}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Injury, Stamina, Toughness, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Hit Power
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Hit Power
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Acceleration}}: Speed (55.7), Acceleration (42.0), Injury (1.2), Hit Power (1.1)
+\item{\textbf{Awareness}}: Awareness (72.1), Play Recognition (27.9)
+\item{\textbf{Agility}}: Agility (19.4), Stamina (0), Power Moves (65.4), Pursuit (15.2)
+\item{\textbf{Finesse Pass Rushing}}: Finesse Moves (100)
+\item{\textbf{Tackling}}: Strength (37.3), Tackle (23.4), Toughness (0.8), Block Shedding (38.5)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Tackling}}: Strength (37.8), Tackle (23.5), Block Shedding (38.8)
+\item{\textbf{Speed}}: Speed (14.5), Acceleration (10.9), Agility (10.9), Finesse Moves (63.7)
+\item{\textbf{Awareness}}: Awareness (54.0), Power Moves (20.2), Pursuit (4.9), Play Recognition (20.9)
+
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Defensive Tackle Archetypes}
+\label{UnreducedDefensiveTackle}
+\begin{tabular}{llllll}
+                    & Acceleration & Awareness & Agility & Finesse Pass Rushing & Tackling \\
+Power Rushing DT    & -0.45        & 0.25      & 0.25    & 0.45                 & -0.50    \\
+Quick Hitter        & 0.79         & -0.71     & -0.71   & -0.10                & 0.73     \\
+Big Slow Gap Filler & -0.78        & 0.46      & 0.46    & -0.70                & 0.56     \\
+Speed Rushing DT    & 0.80         & -0.65     & -0.65   & 1.38                 & -0.87    \\
+Fast Balanced DT    & 0.74         & 0.06      & 0.06    & -0.36                & -0.50   
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Defensive Tackle Archetypes}
+\label{ReducedDefensiveTackle}
+\begin{tabular}{llll}
+                    & Tackling & Speed & Awareness \\
+Quick And Aware DT  & -0.93    & 0.73  & 0.20      \\
+Balanced DT         & -0.12    & -0.16 & 0.28      \\
+Big Slow Gap Filler & 0.65     & -0.93 & 0.27      \\
+Speed Rushing DT    & -0.57    & 1.25  & -0.68     \\
+Strong DT           & 0.74     & -0.19 & -0.55    
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Defensive Tackle Unreduced Standard And Archetype Weights}
+\label{DefensiveTackleUnreducedWeights}
+\begin{tabular}{llllll}
+                    & Acceleration & Awareness & Agility & Finesse Pass Rushing & Tackling \\
+Standard            & 6.7          & 34.5      & 14.3    & 16.5                 & 28.0     \\
+Power Rushing DT    & 9.9          & 29.2      & 19.1    & 21.7                 & 20.1     \\
+Quick Hitter        & 19.1         & 22.0      & 11.9    & 17.5                 & 29.4     \\
+Big Slow Gap Filler & 7.7          & 30.6      & 20.5    & 27.3                 & 17.9     \\
+Speed Rushing DT    & 19.7         & 22.6      & 12.5    & 27.3                 & 17.9     \\
+Fast Balanced DT    & 18.8         & 27.8      & 17.7    & 15.5                 & 20.2    
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Defensive Tackle Reduced Standard And Archetype Weights}
+\label{DefensiveTackleReducedWeights}
+\begin{tabular}{llll}
+                    & Tackling & Speed & Awareness \\
+Standard            & 27.9     & 26.0  & 46.1      \\
+Quick And Aware DT  & 19.8     & 38.2  & 42.1      \\
+Balanced DT         & 29.0     & 27.5  & 43.5      \\
+Big Slow Gap Filler & 38.3     & 18.8  & 43.0      \\
+Speed Rushing DT    & 23.9     & 44.3  & 31.8      \\
+Strong DT           & 39.9     & 27.3  & 32.8     
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+
+\subsubsection{Inside Linebackers}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Injury, Stamina, Toughness, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Man Coverage, Zone Coverage, Hit Power
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Man Coverage, Zone Coverage, Hit Power
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Awareness}}: Awareness (52.1), Play Recognition (47.9)
+\item{\textbf{Tackling}}: Tackle (44.6), Stamina (0), Power Moves (14.3), Pursuit (27.0), Hit Power (14.1)
+\item{\textbf{Blitzing}}: Strength (20.7), Toughness (0), Block Shedding (79.3)
+\item{\textbf{Coverage}}: Finesse Moves (50.8), Man Coverage (17.9), Zone Coverage (31.3)
+\item{\textbf{Speed}}: Speed (36.8), Acceleration (25.8), Agility (37.3), Injury (0)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed}}: Speed (21.9), Acceleration (15.2), Agility (22.2), Finesse Moves (40.7)
+\item{\textbf{Tackling And Coverage}}: Awareness (31.5), Tackle (19.9), Pursuit (12.1), Play Recognition (28.9), Man Coverage (2.8), Zone Coverage (4.8)
+\item{\textbf{Blitzing}}: Strength (13.4), Power Moves (17.6), Block Shedding (51.6), Hit Power (17.4)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Inside Linebacker Archetypes}
+\label{UnreducedInsideLinebacker}
+\begin{tabular}{llllll}
+                   & Awareness & Tackling & Blitzing & Coverage & Speed \\
+Coverage ILB       & 0.14      & -0.22    & -0.48    & 0.62     & -0.06 \\
+Speed Rushing ILB  & -0.44     & -0.05    & 0.29     & -0.46    & 0.65  \\
+Run Stopping ILB   & 0.09      & 0.26     & 1.01     & -0.54    & -0.81 \\
+Speed Coverage ILB & -0.59     & -0.26    & -0.79    & 0.49     & 1.15  \\
+Balanced ILB       & 0.56      & 0.17     & -0.13    & -0.01    & -0.59
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Inside Linebacker Archetypes}
+\label{ReducedInsideLinebacker}
+\begin{tabular}{llll}
+                  & Speed & Tackling And Coverage & Blitzing \\
+Balanced ILB      & 0.47  & -0.06                 & -0.41    \\
+Speed Rushing ILB & 0.15  & -0.59                 & 0.44     \\
+Run Stopping ILB  & -0.78 & 0.17                  & 0.61     \\
+Speed ILB         & 1.30  & -0.59                 & -0.71    \\
+Coverage ILB      & -0.22 & 0.42                  & -0.20   
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Inside Linebacker Unreduced Standard And Archetype Weights}
+\label{InsideLinebackerUnreducedWeights}
+\begin{tabular}{llllll}
+                   & Awareness & Tackling & Blitzing & Coverage & Speed \\
+Standard           & 38.9      & 28.7     & 15.0     & 10.0     & 7.4   \\
+Coverage ILB       & 30.5      & 22.6     & 13.8     & 19.7     & 13.3  \\
+Speed Rushing ILB  & 26.1      & -24.0    & 20.0     & 11.4     & 18.6  \\
+Run Stopping ILB   & 30.2      & 26.5     & 24.5     & 10.9     & 7.9   \\
+Speed Coverage ILB & 25.1      & 22.5     & 11.9     & 19.0     & 21.6  \\
+Balanced ILB       & 33.7      & 25.7     & 16.5     & 14.9     & 9.3  
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Inside Linebacker Reduced Standard And Archetype Weights}
+\label{InsideLinebackerReducedWeights}
+\begin{tabular}{llll}
+                  & Speed & Tackling And Coverage & Blitzing \\
+Standard          & 0.9   & 82.3                  & 16.8     \\
+Balanced ILB      & 23.2  & 57.1                  & 19.7     \\
+Speed Rushing ILB & 18.9  & 50.4                  & 30.6     \\
+Run Stopping ILB  & 7.6   & 59.9                  & 32.5     \\
+Speed ILB         & 32.3  & 50.9                  & 16.8     \\
+Coverage ILB      & 14.2  & 63.3                  & 22.5    
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Outside Linebackers}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Injury, Stamina, Toughness, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Man Coverage, Zone Coverage, Hit Power
+
+\textbf{Statistically Significant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Tackle, Power Moves, Finesse Moves, Block Shedding, Pursuit, Play Recognition, Man Coverage, Zone Coverage, Hit Power
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Awareness}}: Awareness (60.1), Play Recognition (39.9)
+\item{\textbf{Tackling And Coverage}}: Tackle (35.3), Stamina (1.2), Pursuit (19.6), Man Coverage (17.4), Zone Coverage (26.6)
+\item{\textbf{Power}}: Strength (16.5), Toughness (2.2), Power Moves (44.2), Block Shedding (27.1), Hit Power (10.1)
+\item{\textbf{Finesse Pass Rushing}}: Finesse Moves (100)
+\item{\textbf{Speed}}: Speed (49.6), Acceleration (24.8), Agility (23.0), Injury (2.6)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed And Coverage}}: Speed (24.1), Acceleration (11.7), Agility (11.5), Man Coverage (20.9), Zone Coverage (31.8)
+\item{\textbf{Awareness And Tackling}}: Awareness (45.8), Tackle (15.0), Pursuit (8.2), Play Recognition (30.9)
+\item{\textbf{Power And Pass Rushing}}: Strength (11.6), Power Moves (30.9), Finesse Moves (31.0), Block Shedding (19.2), Hit Power (7.3)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Outside Linebacker Archetypes}
+\label{UnreducedOutsideLinebacker}
+\begin{tabular}{llllll}
+                      & Awareness & Tackling And Coverage & Power & Finesse Pass Rushing & Speed \\
+Balanced OLB          & -0.44     & -0.10                 & 0.47  & -0.31                & 0.38  \\
+Power OLB             & 0.63      & -0.02                 & 0.72  & -0.36                & -0.97 \\
+Coverage Tackling OLB & 0.51      & 0.68                  & -0.52 & -0.77                & 0.10  \\
+Speed Rushing OLB     & -0.63     & -0.03                 & -0.77 & 0.58                 & 0.86  \\
+Finesse Rushing OLB   & 0.15      & -0.52                 & -0.27 & 1.18                 & -0.55
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Outside Linebacker Archetypes}
+\label{ReducedOutsideLinebacker}
+\begin{tabular}{llll}
+                      & Speed And Coverage & Tackling And Awareness & Power And Pass Rushing \\
+Power Rushing OLB     & -0.10              & -0.35                  & 0.45                   \\
+Balanced OLB          & -0.20              & 0.41                   & -0.21                  \\
+Coverage Tackling OLB & 0.61               & 0.05                   & -0.66                  \\
+Speed Rushing OLB     & 1.22               & -0.78                  & -0.44                  \\
+Strong Tackling OLB   & -1.04              & 0.61                   & 0.43                  
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Outside Linebacker Unreduced Standard And Archetype Weights}
+\label{OutsideLinebackerUnreducedWeights}
+\begin{tabular}{llllll}
+                      & Awareness & Tackling And Coverage & Power & Finesse Pass Rushing & Speed \\
+Standard              & 37.9      & 20.9                  & 22.6  & 10.1                 & 8.5   \\
+Balanced OLB          & 25.5      & 19.7                  & 25.0  & 12.6                 & 17.2  \\
+Power OLB             & 33.5      & 20.2                  & 26.5  & 12.2                 & 7.6   \\
+Coverage Tackling OLB & 32.8      & 25.4                  & 17.3  & 9.5                  & 15.0  \\
+Speed Rushing OLB     & 24.2      & 20.2                  & 15.7  & 19.5                 & 20.4  \\
+Finesse Rushing OLB   & 30.5      & 16.7                  & 19.4  & 23.2                 & 10.3 
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Outside Linebacker Reduced Standard And Archetype Weights}
+\label{OutsideLinebackerReducedWeights}
+\begin{tabular}{llll}
+                      & Speed And Coverage & Tackling And Awareness & Power And Pass Rushing \\
+Standard              & 17.5               & 50.0                   & 32.5                   \\
+Power Rushing OLB     & 24.2               & 37.1                   & 38.7                   \\
+Balanced OLB          & 22.8               & 47.0                   & 30.2                   \\
+Coverage Tackling OLB & 33.0               & 42.3                   & 24.7                   \\
+Speed Rushing OLB     & 39.7               & 32.5                   & 27.8                   \\
+Strong Tackling OLB   & 13.6               & 48.6                   & 37.8                  
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Safeties}
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Catching, Tackle, Jumping, Injury, Stamina, Toughness, Play Recognition, Man Coverage, Zone Coverage, Hit Power, Press
+
+\textbf{Statistically Significant Attributes}: Speed, Strength, Agility, Awareness, Catching, Tackle, Jumping, Play Recognition, Man Coverage, Zone Coverage, Hit Power
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Awareness}}: Awareness (100)
+\item{\textbf{Coverage}}: Catching (16.1), Man Coverage (34.3), Zone Coverage (49.5), Press (0)
+\item{\textbf{Athleticism}}: Speed (10.6), Acceleration (3.4), Strength (11.3), Agility (6.3), Tackle (54.2), Jumping (12.1), Injury (0), Stamina (2.0), Toughness (0)
+\item{\textbf{Play Recognition}}: Play Recognition (100)
+\item{\textbf{Hit Power}}: Hit Power (100)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Speed And Man Coverage}}: Speed (21.4), Agility (11.1), Jumping (22.4), Man Coverage (45.1)
+\item{\textbf{Awareness And Zone Coverage}}: Awareness (46.2), Catching (5.6), Play Recognition (31.6), Zone Coverage (16.6)
+\item{\textbf{Power}}: Strength (11.1), Tackle (55.7), Hit Power (33.2)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Safety Archetypes}
+\label{UnreducedSafety}
+\begin{tabular}{llllll}
+                      & Awareness & Coverage & Athleticism & Play Recognition & Hit Power \\
+Balanced Safety       & -0.23     & 0.53     & -0.28       & 0.25             & -0.28     \\
+Speed Coverage Safety & -0.13     & 0.32     & 0.55        & -1.02            & 0.29      \\
+Run Stopping Safety   & -0.98     & -0.55    & 0.64        & 0.07             & 0.82      \\
+Deep Free Safety      & 0.60      & 0.64     & -0.42       & 0.66             & -1.48     \\
+Power Zone Safety     & 0.30      & -0.57    & -0.16       & 0                & 0.44     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Safety Archetypes}
+\label{ReducedSafety}
+\begin{tabular}{llll}
+                      & Speed And Man Coverage & Awareness And Zone Coverage & Power \\
+Speed Coverage Safety & 0.88                   & 0.06                        & -0.93 \\
+Balanced Safety       & 0.38                   & -0.38                       & 0     \\
+Run Stopping Safety   & -0.24                  & -0.74                       & 0.98  \\
+Deep Free Safety      & -0.27                  & 0.76                        & -0.49 \\
+Power Zone Safety     & -0.72                  & 0.21                        & 0.51 
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Safety Unreduced Standard And Archetype Weights}
+\label{SafetyUnreducedWeights}
+\begin{tabular}{llllll}
+                      & Awareness & Coverage & Athleticism & Play Recognition & Hit Power \\
+Standard              & 27.1      & 19.9     & 26.4        & 18.1             & 8.4       \\
+Balanced Safety       & 21.8      & 24.0     & 21.0        & 21.1             & 12.1      \\
+Speed Coverage Safety & 22.3      & 22.2     & 27.1        & 12.1             & 16.2      \\
+Run Stopping Safety   & 16.8      & 15.7     & 27.9        & 19.6             & 20.0      \\
+Deep Free Safety      & 27.5      & 24.0     & 19.6        & 23.3             & 5.6       \\
+Power Zone Safety     & 25.9      & 15.9     & 21.9        & 19.0             & 17.6     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Safety Reduced Standard And Archetype Weights}
+\label{SafetyReducedWeights}
+\begin{tabular}{llll}
+                      & Speed And Man Coverage & Awareness And Zone Coverage & Power \\
+Standard              & 15.4                   & 58.9                        & 25.8  \\
+Speed Coverage Safety & 34.5                   & 46.8                        & 18.7  \\
+Balanced Safety       & 29.3                   & 41.1                        & 29.6  \\
+Run Stopping Safety   & 21.5                   & 37.2                        & 41.3  \\
+Deep Free Safety      & 21.0                   & 55.6                        & 23.4  \\
+Power Zone Safety     & 15.5                   & 48.9                        & 35.9 
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsection{Special Teams}
+\subsubsection{Kickers}
+
+For Kickers, we only used 4 unreduced clusters and 2 reduced clusters. There are also only 3 archetypes rather than 5.
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Throw Power, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Kick Power, Kick Accuracy, Injury, Stamina, Toughness
+
+\textbf{Statistically Significant Attributes}: Awareness, Kick Power, Kick Accuracy
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Athleticism}}: Speed (0.4), Acceleration (67.5), Strength (0), Agility (0), Throw Power (0), Toughness (32.1)
+\item{\textbf{Awareness}}: Awareness (100)
+\item{\textbf{Throwing}}: Throw Accuracy Short (44.3), Throw Accuracy Mid (55.7), Throw Accuracy Deep (0)
+\item{\textbf{Kicking}}: Kick Power (24.9), Kick Accuracy (74.2), Injury (0.9), Stamina (0)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Kick Power}}: Kick Power (100)
+\item{\textbf{Kick Accuracy}}: Awareness (56.5), Kick Accuracy (43.5)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Kicker Archetypes}
+\label{UnreducedKicker}
+\begin{tabular}{lllll}
+              & Athleticism & Awareness & Throwing & Kicking \\
+Strong Leg PK & 0.43        & 0.17      & -1.00    & 0.39    \\
+Balanced PK   & -0.74       & 0.47      & 0.22     & 0.04    \\
+Athletic PK   & 0.82        & -1.12     & 0.91     & -0.61  
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Kicker Archetypes}
+\label{ReducedKicker}
+\begin{tabular}{lll}
+            & Kick Power & Kick Accuracy \\
+Power PK    & 0.54       & -0.54         \\
+Accuracy PK & -0.89      & 0.89          \\
+Balanced PK & -0.24      & 0.24         
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Kicker Unreduced Standard And Archetype Weights}
+\label{KickerUnreducedWeights}
+\begin{tabular}{lllll}
+              & Athleticism & Awareness & Throwing & Kicking \\
+Standard       & 0.9         & 49.0      & 0.0      & 50.1    \\
+Strong Leg PK & 16.8        & 38.3      & 3.9      & 41.0    \\
+Balanced PK   & 6.2         & 41.4      & 14.6     & 37.9    \\
+Athletic PK   & 20.2        & 27.8      & 20.3     & 31.8   
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Kicker Reduced Standard And Archetype Weights}
+\label{KickerReducedWeights}
+\begin{tabular}{lll}
+            & Kick Power & Kick Accuracy \\
+Standard    & 13.1       & 86.9          \\
+Power PK    & 41.8       & 58.2          \\
+Accuracy PK & 15.9       & 84.1          \\
+Balanced PK & 26.9       & 73.1         
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\subsubsection{Punters}
+
+For Punters, we only used 4 unreduced clusters and 2 reduced clusters. There are also only 3 archetypes rather than 5.
+
+\textbf{Relevant Attributes}: Speed, Acceleration, Strength, Agility, Awareness, Throw Power, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Kick Power, Kick Accuracy, Injury, Stamina, Toughness
+
+\textbf{Statistically Significant Attributes}: Awareness, Kick Power, Kick Accuracy, Injury
+
+\textbf{Unreduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Athleticism}}: Speed (60.6), Acceleration (0), Strength (39.4), Agility (0)
+\item{\textbf{Awareness}}: Awareness (100)
+\item{\textbf{Throwing}}: Throw Power (10.0), Throw Accuracy Short (0), Throw Accuracy Mid (0), Throw Accuracy Deep (90)
+\item{\textbf{Kicking}}: Kick Power (36.5), Kick Accuracy (61.9), Injury (1.6), Stamina (0), Toughness (0)
+\end{enumerate}
+
+\textbf{Reduced Clusters With Weights}:
+
+\begin{enumerate}
+\item{\textbf{Kick Accuracy}}: Awareness (53.9), Kick Accuracy (46.1)
+\item{\textbf{Kick Power}}: Kick Power (96.8), Injury (3.2)
+\end{enumerate}
+
+\begin{table}[]
+\centering
+\caption{Unreduced Punter Archetypes}
+\label{UnreducedPunter}
+\begin{tabular}{lllll}
+             & Athleticism & Awareness & Throwing & Kicking \\
+Athletic PT  & 0.38        & 0.06      & -0.80    & 0.36    \\
+Good Fake PT & 0.32        & -0.96     & 0.91     & -0.27   \\
+Aware PT     & -0.68       & 0.74      & 0.11     & -0.17  
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Reduced Punter Archetypes}
+\label{ReducedPunter}
+\begin{tabular}{lll}
+            & Kick Accuracy & Kick Power \\
+Balanced PT & -0.27         & 0.27       \\
+Power PT    & -1.05         & 1.05       \\
+Accuracy PT & 0.58          & -0.58     
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Punter Unreduced Standard And Archetype Weights}
+\label{PunterUnreducedWeights}
+\begin{tabular}{lllll}
+             & Athleticism & Awareness & Throwing & Kicking \\
+Standard     & 0           & 41.9      & 0.4      & 57.7    \\
+Athletic PT  & 16.0        & 33.9      & 5.4      & 44.7    \\
+Good Fake PT & 15.6        & 25.1      & 20.6     & 38.7    \\
+Aware PT     & 6.2         & 40.2      & 13.8     & 39.8   
+\end{tabular}
+\end{table}
+
+\begin{table}[]
+\centering
+\caption{Punter Reduced Standard And Archetype Weights}
+\label{PunterReducedWeights}
+\begin{tabular}{lll}
+            & Kick Accuracy & Kick Power \\
+Standard    & 78.1          & 21.9       \\
+Balanced PT & 58.7          & 41.3       \\
+Power PT    & 46.5          & 53.5       \\
+Accuracy PT & 74.9          & 25.1      
+\end{tabular}
+\end{table}
+
+\textbf{Player Observations}
+
+\section{Conclusions And Future Analysis}
+\label{Conclusions}
+
+This paper demonstrates that, so long as some prior knowledge about value exists, we can use clustering analysis on attributes and alternatives to construct archetypes and evaluate alternatives against them in a situation in which we have a complete data set (that is, comparable alternatives all evaluated on the same attributes). We now have all players in our Madden data set evaluated against multiple archetypes at their position.
+The next phase of the project is roster construction, in which we will experiment with various combinations of players of different skill levels and different positional archetypes and seek out patterns and insights from simulations.
+
+
+\bibliographystyle{plain}
+\bibliography{programming}
+
+\end{document}

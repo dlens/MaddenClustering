@@ -1,0 +1,453 @@
+---
+title: "Tight_Ends_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the TE attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenTEs = MaddenAllPlayers[which(MaddenAllPlayers$Position == "TE"),]
+TEAttributes = c(6:13, 20:21, 23, 25:34, 42:44, 47)
+TEOriginal = MaddenTEs[TEAttributes]
+rownames(TEOriginal) = do.call(paste, c(MaddenTEs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+TEmeans = c()
+TEsds = c()
+TEzscores = matrix(0, nrow = length(TEOriginal[,1]), ncol = length(TEOriginal))
+for (i in 1:length(TEOriginal)) {
+  TEmeans = append(TEmeans, mean(TEOriginal[,i]))
+  TEsds = append(TEsds, sd(TEOriginal[,i])*sqrt((length(TEOriginal[,i])-1)/(length(TEOriginal[,i]))))
+  for (j in 1:length(TEOriginal[,i])) {
+    TEzscores[j,i] = (TEOriginal[j,i]-TEmeans[i])/TEsds[i]
+  }
+}
+TEzscores = data.frame(TEzscores)
+rownames(TEzscores) = do.call(paste, c(MaddenTEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(TEzscores) = colnames(TEOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+TENormzscores = TEzscores[,-1]
+TErowadjz = length(TENormzscores[1,])
+for (i in 1:length(TENormzscores)) {
+  for (j in 1:length(TENormzscores[,1])) {
+  TENormzscores[j, i] = TEzscores[j, i+1]-(sum(TEzscores[j,])/TErowadjz)
+  }
+}
+TENormzscores = data.frame(TENormzscores)
+rownames(TENormzscores) = do.call(paste, c(MaddenTEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(TENormzscores) = colnames(TEzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+TEover = TEzscores[,1]
+
+TEfit <- lm(TEover ~ TEzscores[,2] + TEzscores[,3] + TEzscores[,4] + TEzscores[,5] + TEzscores[,6] + TEzscores[,7] + TEzscores[,8] + TEzscores[,9] + TEzscores[,10] + TEzscores[,11] + TEzscores[,12] + TEzscores[,13] + TEzscores[,14] + TEzscores[,15] + TEzscores[,16] + TEzscores[,17] + TEzscores[,18] + TEzscores[,19] + TEzscores[,20] + TEzscores[,21] + TEzscores[,22] + TEzscores[,23] + TEzscores[,24] + TEzscores[,25], data = TEzscores)
+summary(TEfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+TEReduced = TEzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25)]
+TEreducedfit <- lm(TEover ~ TEReduced[,2] + TEReduced[,3] + TEReduced[,4] + TEReduced[,5] + TEReduced[,6] + TEReduced[,7] + TEReduced[,8] + TEReduced[,9] + TEReduced[,10] + TEReduced[,11] + TEReduced[,12] + TEReduced[,13] + TEReduced[,14] + TEReduced[,15] + TEReduced[,16] + TEReduced[,17] + TEReduced[,18] + TEReduced[,19] + TEReduced[,20] + TEReduced[,21] + TEReduced[,22] + TEReduced[,23] + TEReduced[,24], data = TEReduced)
+summary(TEreducedfit)
+
+# This normalizes the reduced criteria
+
+TENormReduced = TENormzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)]
+TENormReducedtemp = TENormReduced
+TErowadjreduced = length(TENormReduced[1,])
+for (i in 1:length(TENormReduced)) {
+  for (j in 1:length(TENormzscores[,1])) {
+  TENormReduced[j, i] = TENormReducedtemp[j, i]-(sum(TENormReducedtemp[j,])/TErowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+TEreducedcovar = cov(TEReduced[,-1])
+
+TEcovar = cov(TEOriginal[,-1])
+
+set.seed(1)
+TEreducedcriteriaclusters = kmeans(TEreducedcovar, 3)
+set.seed(1)
+TEcriteriaclusters = kmeans(TEcovar, 5)
+clusplot(TEreducedcovar, TEreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(TEcovar, TEcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Power Running (Trucking, BC Vision, Stiff Arm, Spin Move, Juke Move, Release)
+# Cluster 2: Blocking (Strength, Run Block, Pass Block, Injury, Toughness, Impact Block)
+# Cluster 3: Catching (Catching, Jumping, Elusiveness, Spectacular Vision, Catch In Traffic, Route Running)
+# Cluster 4: Speed Running (Speed, Acceleration, Agility, Carrying, Stamina)
+# Cluster 5: Awareness (Awareness)
+
+# Reduced
+# Cluster 1: Routes (Carrying, Stamina, Route Running)
+# Cluster 2: Blocking (Strength, Awareness, Run Block, Pass Block, Toughness, Impact Block)
+# Cluster 3: Speed And Skill (Speed, Acceleration, Catching, Jumping, Trucking, Elusiveness, BC Vision, Stiff Arm, Spin Move, Juke Move, Spectacular Catch, Catch In Traffic, Release)
+
+summary(TEfit)
+
+TEcriteriaclusters
+
+TEPowerRunningGroupFullReg = c(15, 17, 18, 19, 20, 25)
+TEBlockingGroupFullReg = c(4, 9, 10, 12, 14, 21)
+TECatchingGroupFullReg = c(7, 11, 16, 22, 23, 24)
+TESpeedRunningGroupFullReg = c(2, 3, 5, 8, 13)
+TEAwarenessGroupFullReg = c(6)
+
+TEPowerRunningGroupWeightsFullReg = c(54.22, 75.16, 36.92, 50.59, 29.89, 75.91)
+TEBlockingGroupWeightsFullReg = c(73.46, 165.9, 66.16, 0, 0, 80.48)
+TECatchingGroupWeightsFullReg = c(137.7, 44.39, 67.46, 106.9, 166.9, 213.7)
+TESpeedRunningGroupWeightsFullReg = c(71.34, 41.36, 49.75, 26.43, 0)
+TEAwarenessGroupWeightsFullReg = c(337.8)
+
+TEPowerRunningGroupWeightsFullReg[]/sum(TEPowerRunningGroupWeightsFullReg)
+TEBlockingGroupWeightsFullReg[]/sum(TEBlockingGroupWeightsFullReg)
+TECatchingGroupWeightsFullReg[]/sum(TECatchingGroupWeightsFullReg)
+TESpeedRunningGroupWeightsFullReg[]/sum(TESpeedRunningGroupWeightsFullReg)
+TEAwarenessGroupWeightsFullReg[]/sum(TEAwarenessGroupWeightsFullReg )
+
+TEOVRFullReg = c()
+TEPowerRunningScoresFullReg = c()
+TEBlockingScoresFullReg = c()
+TECatchingScoresFullReg = c()
+TESpeedRunningScoresFullReg = c()
+TEAwarenessScoresFullReg = c()
+
+TEClusterFullReg = matrix(0, nrow = length(TEOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(TEzscores[,1])) {
+  TEOVRFullReg = append(TEOVRFullReg, TEzscores[i, 1])
+  TEPowerRunningScoresFullReg = append(TEPowerRunningScoresFullReg, sum(TEzscores[i, TEPowerRunningGroupFullReg]*TEPowerRunningGroupWeightsFullReg)/sum(TEPowerRunningGroupWeightsFullReg))
+  TEBlockingScoresFullReg = append(TEBlockingScoresFullReg, sum(TEzscores[i, TEBlockingGroupFullReg]*TEBlockingGroupWeightsFullReg)/sum(TEBlockingGroupWeightsFullReg))
+  TECatchingScoresFullReg = append(TECatchingScoresFullReg, sum(TEzscores[i, TECatchingGroupFullReg]*TECatchingGroupWeightsFullReg)/sum(TECatchingGroupWeightsFullReg))
+  TESpeedRunningScoresFullReg = append(TESpeedRunningScoresFullReg, sum(TEzscores[i, TESpeedRunningGroupFullReg]*TESpeedRunningGroupWeightsFullReg)/sum(TESpeedRunningGroupWeightsFullReg))
+  TEAwarenessScoresFullReg = append(TEAwarenessScoresFullReg, sum(TEzscores[i, TEAwarenessGroupFullReg]*TEAwarenessGroupWeightsFullReg)/sum(TEAwarenessGroupWeightsFullReg))
+  TEClusterFullReg[i, 1] = TEOVRFullReg[i]
+  TEClusterFullReg[i, 2] = TEPowerRunningScoresFullReg[i]
+  TEClusterFullReg[i, 3] = TEBlockingScoresFullReg[i]
+  TEClusterFullReg[i, 4] = TECatchingScoresFullReg[i]
+  TEClusterFullReg[i, 5] = TESpeedRunningScoresFullReg[i]
+  TEClusterFullReg[i, 6] = TEAwarenessScoresFullReg[i]
+}
+TEClusterFullReg = data.frame(TEClusterFullReg)
+rownames(TEClusterFullReg) = do.call(paste, c(MaddenTEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(TEClusterFullReg) = c("Overall", "Power Running", "Blocking", "Catching", "Speed Running", "Awareness")
+
+TEClusterFullRegNoOverall = TEClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+TEPowerRunningGroupFullNorm = TEPowerRunningGroupFullReg-1
+TEBlockingGroupFullNorm = TEBlockingGroupFullReg-1
+TECatchingGroupFullNorm = TECatchingGroupFullReg-1
+TESpeedRunningGroupFullNorm = TESpeedRunningGroupFullReg-1
+TEAwarenessGroupFullNorm = TEAwarenessGroupFullReg-1
+
+TEPowerRunningGroupWeightsFullNorm = TEPowerRunningGroupWeightsFullReg
+TEBlockingGroupWeightsFullNorm = TEBlockingGroupWeightsFullReg
+TECatchingGroupWeightsFullNorm = TECatchingGroupWeightsFullReg
+TESpeedRunningGroupWeightsFullNorm = TESpeedRunningGroupWeightsFullReg
+TEAwarenessGroupWeightsFullNorm = TEAwarenessGroupWeightsFullReg
+
+TEPowerRunningScoresFullNorm = c()
+TEBlockingScoresFullNorm = c()
+TECatchingScoresFullNorm = c()
+TESpeedRunningScoresFullNorm = c()
+TEAwarenessScoresFullNorm = c()
+
+TEClusterFullNorm = matrix(0, nrow = length(TEOriginal[,1]), ncol = 5)
+TEClusterFullNormtemp = TEClusterFullNorm
+
+for (i in 1: length(TENormzscores[,1])) {
+  TEPowerRunningScoresFullNorm = append(TEPowerRunningScoresFullNorm, sum(TENormzscores[i, TEPowerRunningGroupFullNorm]*TEPowerRunningGroupWeightsFullNorm)/sum(TEPowerRunningGroupWeightsFullNorm))
+  TEBlockingScoresFullNorm = append(TEBlockingScoresFullNorm, sum(TENormzscores[i, TEBlockingGroupFullNorm]*TEBlockingGroupWeightsFullNorm)/sum(TEBlockingGroupWeightsFullNorm))
+  TECatchingScoresFullNorm = append(TECatchingScoresFullNorm, sum(TENormzscores[i, TECatchingGroupFullNorm]*TECatchingGroupWeightsFullNorm)/sum(TECatchingGroupWeightsFullNorm))
+  TESpeedRunningScoresFullNorm = append(TESpeedRunningScoresFullNorm, sum(TENormzscores[i, TESpeedRunningGroupFullNorm]*TESpeedRunningGroupWeightsFullNorm)/sum(TESpeedRunningGroupWeightsFullNorm))
+  TEAwarenessScoresFullNorm = append(TEAwarenessScoresFullNorm, sum(TENormzscores[i, TEAwarenessGroupFullNorm]*TEAwarenessGroupWeightsFullNorm)/sum(TEAwarenessGroupWeightsFullNorm))
+  TEClusterFullNormtemp[i, 1] = TEPowerRunningScoresFullNorm[i]
+  TEClusterFullNormtemp[i, 2] = TEBlockingScoresFullNorm[i]
+  TEClusterFullNormtemp[i, 3] = TECatchingScoresFullNorm[i]
+  TEClusterFullNormtemp[i, 4] = TESpeedRunningScoresFullNorm[i]
+  TEClusterFullNormtemp[i, 5] = TEAwarenessScoresFullNorm[i]
+}
+
+TEClusterFullNormtemp = data.frame(TEClusterFullNormtemp)
+
+TErowadjclusterFullNorm = length(TEClusterFullNorm[1,])
+for (i in 1:length(TEClusterFullNormtemp)) {
+  for (j in 1:length(TEClusterFullNormtemp[,1])) {
+  TEClusterFullNorm[j, i] = TEClusterFullNormtemp[j, i]-(sum(TEClusterFullNormtemp[j,])/TErowadjclusterFullNorm)
+  }
+}
+
+TEClusterFullNorm = data.frame(TEClusterFullNorm)
+rownames(TEClusterFullNorm) = do.call(paste, c(MaddenTEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(TEClusterFullNorm) = c("Power Running", "Blocking", "Catching", "Speed Running", "Awareness")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Routes (Carrying, Stamina, Route Running)
+# Cluster 2: Blocking (Strength, Awareness, Run Block, Pass Block, Toughness, Impact Block)
+# Cluster 3: Speed And Skill (Speed, Acceleration, Catching, Jumping, Trucking, Elusiveness, BC Vision, Stiff Arm, Spin Move, Juke Move, Spectacular Catch, Catch In Traffic, Release)
+
+
+summary(TEreducedfit)
+
+TEreducedcriteriaclusters
+
+TERoutesGroupReducedReg = c(8, 12, 23)
+TEBlockingGroupReducedReg = c(4, 6, 9, 10, 13, 20)
+TESpeedAndSkillGroupReducedReg = c(2, 3, 5, 7, 11, 14, 15, 16, 17, 18, 19, 21, 22, 24)
+
+TERoutesGroupWeightsReducedReg = c(26.39, 0, 213.7)
+TEBlockingGroupWeightsReducedReg = c(73.45, 337.8, 165.9, 66.11, 0, 80.48)
+TESpeedAndSkillGroupWeightsReducedReg = c(71.38, 41.33, 49.74, 137.7, 44.45, 54.32, 67.45, 75.08, 36.90, 50.64, 29.79, 106.9, 166.9, 75.92)
+
+TERoutesGroupWeightsReducedReg[]/sum(TERoutesGroupWeightsReducedReg)
+TEBlockingGroupWeightsReducedReg[]/sum(TEBlockingGroupWeightsReducedReg)
+TESpeedAndSkillGroupWeightsReducedReg[]/sum(TESpeedAndSkillGroupWeightsReducedReg)
+
+TEOVRReducedReg = c()
+TERoutesScoresReducedReg = c()
+TEBlockingScoresReducedReg = c()
+TESpeedAndSkillScoresReducedReg = c()
+
+TEClusterReducedReg = matrix(0, nrow = length(TEOriginal[,1]), ncol = 4)
+
+for (i in 1: length(TEReduced[,1])) {
+  TEOVRReducedReg = append(TEOVRReducedReg, TEReduced[i, 1])
+  TERoutesScoresReducedReg = append(TERoutesScoresReducedReg, sum(TEReduced[i, TERoutesGroupReducedReg]*TERoutesGroupWeightsReducedReg)/sum(TERoutesGroupWeightsReducedReg))
+  TEBlockingScoresReducedReg = append(TEBlockingScoresReducedReg, sum(TEReduced[i, TEBlockingGroupReducedReg]*TEBlockingGroupWeightsReducedReg)/sum(TEBlockingGroupWeightsReducedReg))
+  TESpeedAndSkillScoresReducedReg = append(TESpeedAndSkillScoresReducedReg, sum(TEReduced[i, TESpeedAndSkillGroupReducedReg]*TESpeedAndSkillGroupWeightsReducedReg)/sum(TESpeedAndSkillGroupWeightsReducedReg))
+  TEClusterReducedReg[i, 1] = TEOVRReducedReg[i]
+  TEClusterReducedReg[i, 2] = TERoutesScoresReducedReg[i]
+  TEClusterReducedReg[i, 3] = TEBlockingScoresReducedReg[i]
+  TEClusterReducedReg[i, 4] = TESpeedAndSkillScoresReducedReg[i]
+}
+TEClusterReducedReg = data.frame(TEClusterReducedReg)
+rownames(TEClusterReducedReg) = do.call(paste, c(MaddenTEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(TEClusterReducedReg) = c("Overall", "Routes", "Blocking", "Speed And Skill")
+
+TEClusterReducedRegNoOverall = TEClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+TERoutesGroupReducedNorm = TERoutesGroupReducedReg - 1
+TEBlockingGroupReducedNorm = TEBlockingGroupReducedReg - 1
+TESpeedAndSkillGroupReducedNorm = TESpeedAndSkillGroupReducedReg - 1
+
+TERoutesGroupWeightsReducedNorm = TERoutesGroupWeightsReducedReg
+TEBlockingGroupWeightsReducedNorm = TEBlockingGroupWeightsReducedReg
+TESpeedAndSkillGroupWeightsReducedNorm = TESpeedAndSkillGroupWeightsReducedReg
+
+TERoutesScoresReducedNorm = c()
+TEBlockingScoresReducedNorm = c()
+TESpeedAndSkillScoresReducedNorm = c()
+
+TEClusterReducedNorm = matrix(0, nrow = length(TENormReduced[,1]), ncol = 3)
+TEClusterReducedNormtemp = TEClusterReducedNorm
+for (i in 1: length(TENormReduced[,1])) {
+  TERoutesScoresReducedNorm = append(TERoutesScoresReducedNorm, sum(TENormReduced[i, TERoutesGroupReducedNorm]*TERoutesGroupWeightsReducedNorm)/sum(TERoutesGroupWeightsReducedNorm))
+  TEBlockingScoresReducedNorm = append(TEBlockingScoresReducedNorm, sum(TENormReduced[i, TEBlockingGroupReducedNorm]*TEBlockingGroupWeightsReducedNorm)/sum(TEBlockingGroupWeightsReducedNorm))
+  TESpeedAndSkillScoresReducedNorm = append(TESpeedAndSkillScoresReducedNorm, sum(TENormReduced[i, TESpeedAndSkillGroupReducedNorm]*TESpeedAndSkillGroupWeightsReducedNorm)/sum(TESpeedAndSkillGroupWeightsReducedNorm))
+  TEClusterReducedNormtemp[i, 1] = TERoutesScoresReducedNorm[i]
+  TEClusterReducedNormtemp[i, 2] = TEBlockingScoresReducedNorm[i]
+  TEClusterReducedNormtemp[i, 3] = TESpeedAndSkillScoresReducedNorm[i]
+}
+
+TEClusterReducedNormtemp = data.frame(TEClusterReducedNormtemp)
+
+TErowadjclusterReducedNorm = length(TEClusterReducedNorm[1,])
+for (i in 1:length(TEClusterReducedNormtemp)) {
+  for (j in 1:length(TEClusterReducedNormtemp[,1])) {
+  TEClusterReducedNorm[j, i] = TEClusterReducedNormtemp[j, i]-(sum(TEClusterReducedNormtemp[j,])/TErowadjclusterReducedNorm)
+  }
+}
+
+TEClusterReducedNorm = data.frame(TEClusterReducedNorm, row.names = do.call(paste, c(MaddenTEs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(TEClusterReducedNorm) = c("Routes", "Blocking", "Speed And Skill")
+
+# This clusters the players 
+
+TEnclusters = 5
+
+set.seed(1)
+TEkz = kmeans(TEzscores, TEnclusters)
+set.seed(1)
+TENormkz = kmeans(TENormzscores, TEnclusters)
+set.seed(1)
+TEkreduced = kmeans(TEReduced, TEnclusters)
+set.seed(1)
+TENormkreduced = kmeans(TENormReduced, TEnclusters)
+
+set.seed(1)
+TEkclusterReducedReg = kmeans(TEClusterReducedReg, TEnclusters)
+set.seed(1)
+TEkclusterReducedNorm = kmeans(TEClusterReducedNorm, TEnclusters)
+set.seed(1)
+TEkclusterFullReg = kmeans(TEClusterFullReg, TEnclusters)
+set.seed(1)
+TEkclusterFullNorm = kmeans(TEClusterFullNorm, TEnclusters)
+
+
+clusplot(TEzscores, TEkz$cluster, lines=0, labels=2, cex=0.75)
+TEkz$centers
+clusplot(TENormzscores, TENormkz$cluster, lines=0, labels=2, cex=0.75)
+TENormkz$centers
+clusplot(TEReduced, TEkreduced$cluster, lines=0, labels=2, cex=0.75)
+TEkreduced$centers
+clusplot(TENormReduced, TENormkreduced$cluster, lines=0, labels=2, cex=0.75)
+TENormkreduced$centers
+
+clusplot(TEClusterReducedReg, TEkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+TEkclusterReducedReg$centers
+clusplot(TEClusterReducedNorm, TEkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+TEkclusterReducedNorm$centers
+clusplot(TEClusterFullReg, TEkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+TEkclusterFullReg$centers
+clusplot(TEClusterFullNorm, TEkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+TEkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 RECEIVING TE 
+# Cluster 2 BLOCKING TE (All blocking nothing else)
+# Cluster 3 CARRYING TE
+# Cluster 4 ATHLETIC TE
+# Cluster 5 BALANCED TE (Some blocking, some routes)
+
+# Full Norm
+# Cluster 1 BALANCED BLOCKING TE
+# Cluster 2 HIGH AWARENESS BLOCKING TE
+# Cluster 3 RECEIVING TE
+# Cluster 4 RUN AFTER CATCH TE
+# Cluster 5 BALANCED TE
+
+TEClusterReducedNorm
+TEClusterFullNorm
+TEkclusterReducedNorm
+TEkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+TEreducedmetafit <- lm(TEClusterReducedReg[,1] ~ TEClusterReducedReg[,2] + TEClusterReducedReg[,3] + TEClusterReducedReg[,4], data = TEClusterReducedReg)
+summary(TEreducedmetafit)
+TEunreducedmetafit <- lm(TEClusterFullReg[,1] ~ TEClusterFullReg[,2] + TEClusterFullReg[,3] + TEClusterFullReg[,4] + TEClusterFullReg[,5] + TEClusterFullReg[,6], data = TEClusterFullReg)
+summary(TEunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(TEreducedmetafit)
+
+TEstandardreducedweights = c(238.5, 719.2, 1006.0)
+TEstandardreducedweights = TEstandardreducedweights/sum(TEstandardreducedweights)
+
+summary(TEunreducedmetafit)
+
+TEstandardunreducedweights = c(321.3, 383.7, 733.5, 190.2, 335.9)
+TEstandardunreducedweights = TEstandardunreducedweights/sum(TEstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+TEclusterreducedweights = normalizealldataframe(pnorm(TEkclusterReducedNorm$centers))
+TEclusterunreducedweights = normalizealldataframe(pnorm(TEkclusterFullNorm$centers))
+
+TEadjustedreducedweights = TEclusterreducedweights
+TEadjustedunreducedweights = TEclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  TEadjustedreducedweights[i,] = normalizetolength(TEstandardreducedweights+TEclusterreducedweights[i,])
+  TEadjustedunreducedweights[i,] = normalizetolength(TEstandardunreducedweights+TEclusterunreducedweights[i,])
+}
+
+TETotalScoresReduced = TEClusterReducedRegNoOverall
+TETotalScoresUnreduced = TEClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(TEOriginal[,1])) {
+  for (j in 1:5) {
+    TETotalScoresReduced[i, j] = 100*pnorm(sum(TEClusterReducedRegNoOverall[i,]*TEadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(TEOriginal[,1])) {
+  for (j in 1:5) {
+    TETotalScoresUnreduced[i, j] = 100*pnorm(sum(TEClusterFullRegNoOverall[i,]*TEadjustedunreducedweights[j,]))
+  }
+}
+
+TEkclusterFullNorm$centers
+TEkclusterReducedNorm$centers
+
+# Full Norm
+# Cluster 1 BALANCED BLOCKING TE
+# Cluster 2 HIGH AWARENESS BLOCKING TE
+# Cluster 3 RECEIVING TE
+# Cluster 4 RUN AFTER CATCH TE
+# Cluster 5 BALANCED TE
+
+# Reduced Norm
+# Cluster 1 RECEIVING TE 
+# Cluster 2 BLOCKING TE (All blocking nothing else)
+# Cluster 3 CARRYING TE
+# Cluster 4 ATHLETIC TE
+# Cluster 5 BALANCED TE (Some blocking, some routes)
+
+colnames(TETotalScoresUnreduced) = c("Balanced Blocking TE", "High Awareness Blocking TE", "Receiving TE", "Run After Catch TE", "Balanced TE")
+colnames(TETotalScoresReduced) = c("Receiving TE", "Blocking TE", "Carrying TE", "Athletic TE", "Balanced TE")
+
+TETotalScoresReduced
+TETotalScoresUnreduced
+
+TETotalScoresReducedwithOVR = TETotalScoresReduced
+TETotalScoresUnreducedwithOVR = TETotalScoresUnreduced
+
+TETotalScoresReducedwithOVR[,6] = TEOriginal[,1]
+TETotalScoresUnreducedwithOVR[,6] = TEOriginal[,1]
+
+TETotalScoresReducedwithOVR
+TETotalScoresUnreducedwithOVR
+
+TEstandardreducedweights
+TEadjustedreducedweights
+TEstandardunreducedweights
+TEadjustedunreducedweights
+
+```

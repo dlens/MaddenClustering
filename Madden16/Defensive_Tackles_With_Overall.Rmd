@@ -1,0 +1,465 @@
+---
+title: "Defensive_Tackles_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the DT attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenDTs = subset(MaddenAllPlayers, Position == "DT")
+DTAttributes = c(6:11, 22, 25:27, 35:39, 45)
+DTOriginal = MaddenDTs[DTAttributes]
+rownames(DTOriginal) = do.call(paste, c(MaddenDTs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+DTmeans = c()
+DTsds = c()
+DTzscores = matrix(0, nrow = length(DTOriginal[,1]), ncol = length(DTOriginal))
+for (i in 1:length(DTOriginal)) {
+  DTmeans = append(DTmeans, mean(DTOriginal[,i]))
+  DTsds = append(DTsds, sd(DTOriginal[,i])*sqrt((length(DTOriginal[,i])-1)/(length(DTOriginal[,i]))))
+  for (j in 1:length(DTOriginal[,i])) {
+    DTzscores[j,i] = (DTOriginal[j,i]-DTmeans[i])/DTsds[i]
+  }
+}
+DTzscores = data.frame(DTzscores)
+rownames(DTzscores) = do.call(paste, c(MaddenDTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DTzscores) = colnames(DTOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+DTNormzscores = DTzscores[,-1]
+DTrowadjz = length(DTNormzscores[1,])
+for (i in 1:length(DTNormzscores)) {
+  for (j in 1:length(DTNormzscores[,1])) {
+  DTNormzscores[j, i] = DTzscores[j, i+1]-(sum(DTzscores[j,])/DTrowadjz)
+  }
+}
+DTNormzscores = data.frame(DTNormzscores)
+rownames(DTNormzscores) = do.call(paste, c(MaddenDTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DTNormzscores) = colnames(DTzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+DTover = DTzscores[,1]
+
+DTfit <- lm(DTover ~ DTzscores[,2] + DTzscores[,3] + DTzscores[,4] + DTzscores[,5] + DTzscores[,6] + DTzscores[,7] + DTzscores[,8] + DTzscores[,9] + DTzscores[,10] + DTzscores[,11] + DTzscores[,12] + DTzscores[,13] + DTzscores[,14] + DTzscores[,15] + DTzscores[,16], data = DTzscores)
+summary(DTfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+DTReduced = DTzscores[,c(1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15)]
+DTreducedfit <- lm(DTover ~ DTReduced[,2] + DTReduced[,3] + DTReduced[,4] + DTReduced[,5] + DTReduced[,6] + DTReduced[,7] + DTReduced[,8] + DTReduced[,9] + DTReduced[,10] + DTReduced[,11] + DTReduced[,12], data = DTReduced)
+summary(DTreducedfit)
+
+# This normalizes the reduced criteria
+
+DTNormReduced = DTNormzscores[,c(1, 2, 3, 4, 5, 6, 10, 11, 12, 13, 14)]
+DTNormReducedtemp = DTNormReduced
+DTrowadjreduced = length(DTNormReduced[1,])
+for (i in 1:length(DTNormReduced)) {
+  for (j in 1:length(DTNormzscores[,1])) {
+  DTNormReduced[j, i] = DTNormReducedtemp[j, i]-(sum(DTNormReducedtemp[j,])/DTrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+DTreducedcovar = cov(DTReduced[,-1])
+
+DTcovar = cov(DTOriginal[,-1])
+
+set.seed(1)
+DTreducedcriteriaclusters = kmeans(DTreducedcovar, 3)
+set.seed(1)
+DTcriteriaclusters = kmeans(DTcovar, 5)
+clusplot(DTreducedcovar, DTreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(DTcovar, DTcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+DTcriteriaclusters
+DTreducedcriteriaclusters
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Acceleration (Speed, Acceleration, Injury, Hit Power)
+# Cluster 2: Awareness (Awareness, Play Recognition)
+# Cluster 3: Agility (Agility, Stamina, Power Moves, Pursuit)
+# Cluster 4: Finesse Pass Rushing (Finesse Moves)
+# Cluster 5: Tackling (Strength, Tackle, Toughness, Block Shedding)
+
+# Reduced
+# Cluster 1: Tackling (Strength, Tackle, Block Shedding)
+# Cluster 2: Speed (Speed, Acceleration, Agility, Finesse Moves)
+# Cluster 3: Awareness (Awareness, Power Moves, Play Recognition)
+
+DTAccelerationGroupFullReg = c(2, 3, 8, 16)
+DTAwarenessGroupFullReg = c(6, 15)
+DTAgilityGroupFullReg = c(5, 9, 11, 14)
+DTFinessePassRushingGroupFullReg = c(12)
+DTTacklingGroupFullReg = c(4, 7, 10, 13)
+
+summary(DTfit)
+
+DTcriteriaclusters
+
+DTAccelerationGroupWeightsFullReg = c(67.4, 50.82, 1.473, 1.395)
+DTAwarenessGroupWeightsFullReg = c(444.7, 172.4)
+DTAgilityGroupWeightsFullReg = c(49.67, 0, 167.6, 39.07)
+DTFinessePassRushingGroupWeightsFullReg = c(296.2)
+DTTacklingGroupWeightsFullReg = c(186.9, 117.3, 3.986, 192.6)
+
+DTAccelerationGroupWeightsFullReg[]/sum(DTAccelerationGroupWeightsFullReg)
+DTAwarenessGroupWeightsFullReg[]/sum(DTAwarenessGroupWeightsFullReg)
+DTAgilityGroupWeightsFullReg[]/sum(DTAgilityGroupWeightsFullReg)
+DTFinessePassRushingGroupWeightsFullReg[]/sum(DTFinessePassRushingGroupWeightsFullReg)
+DTTacklingGroupWeightsFullReg[]/sum(DTTacklingGroupWeightsFullReg)
+
+DTOVRFullReg = c()
+DTAccelerationScoresFullReg = c()
+DTAwarenessScoresFullReg = c()
+DTAgilityScoresFullReg = c()
+DTFinessePassRushingScoresFullReg = c()
+DTTacklingScoresFullReg = c()
+
+DTClusterFullReg = matrix(0, nrow = length(DTOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(DTzscores[,1])) {
+  DTOVRFullReg = append(DTOVRFullReg, DTzscores[i, 1])
+  DTAccelerationScoresFullReg = append(DTAccelerationScoresFullReg, sum(DTzscores[i, DTAccelerationGroupFullReg]*DTAccelerationGroupWeightsFullReg)/sum(DTAccelerationGroupWeightsFullReg))
+  DTAwarenessScoresFullReg = append(DTAwarenessScoresFullReg, sum(DTzscores[i, DTAwarenessGroupFullReg]*DTAwarenessGroupWeightsFullReg)/sum(DTAwarenessGroupWeightsFullReg))
+  DTAgilityScoresFullReg = append(DTAgilityScoresFullReg, sum(DTzscores[i, DTAgilityGroupFullReg]*DTAgilityGroupWeightsFullReg)/sum(DTAgilityGroupWeightsFullReg))
+  DTFinessePassRushingScoresFullReg = append(DTFinessePassRushingScoresFullReg, sum(DTzscores[i, DTFinessePassRushingGroupFullReg]*DTFinessePassRushingGroupWeightsFullReg)/sum(DTFinessePassRushingGroupWeightsFullReg))
+  DTTacklingScoresFullReg = append(DTTacklingScoresFullReg, sum(DTzscores[i, DTTacklingGroupFullReg]*DTTacklingGroupWeightsFullReg)/sum(DTTacklingGroupWeightsFullReg))
+  DTClusterFullReg[i, 1] = DTOVRFullReg[i]
+  DTClusterFullReg[i, 2] = DTAccelerationScoresFullReg[i]
+  DTClusterFullReg[i, 3] = DTAwarenessScoresFullReg[i]
+  DTClusterFullReg[i, 4] = DTAgilityScoresFullReg[i]
+  DTClusterFullReg[i, 5] = DTFinessePassRushingScoresFullReg[i]
+  DTClusterFullReg[i, 6] = DTTacklingScoresFullReg[i]
+}
+DTClusterFullReg = data.frame(DTClusterFullReg)
+rownames(DTClusterFullReg) = do.call(paste, c(MaddenDTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DTClusterFullReg) = c("Overall", "Acceleration", "Awareness", "Agility", "Finesse Pass Rushing", "Tackling")
+
+DTClusterFullRegNoOverall = DTClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+DTAccelerationGroupFullNorm = DTAccelerationGroupFullReg-1
+DTAwarenessGroupFullNorm = DTAwarenessGroupFullReg-1
+DTAgilityGroupFullNorm = DTAgilityGroupFullReg-1
+DTFinessePassRushingGroupFullNorm = DTFinessePassRushingGroupFullReg-1
+DTTacklingGroupFullNorm = DTTacklingGroupFullReg-1
+
+DTAccelerationGroupWeightsFullNorm = DTAccelerationGroupWeightsFullReg
+DTAwarenessGroupWeightsFullNorm = DTAwarenessGroupWeightsFullReg
+DTAgilityGroupWeightsFullNorm = DTAgilityGroupWeightsFullReg
+DTFinessePassRushingGroupWeightsFullNorm = DTFinessePassRushingGroupWeightsFullReg
+DTTacklingGroupWeightsFullNorm = DTTacklingGroupWeightsFullReg
+
+DTAccelerationScoresFullNorm = c()
+DTAwarenessScoresFullNorm = c()
+DTAgilityScoresFullNorm = c()
+DTFinessePassRushingScoresFullNorm = c()
+DTTacklingScoresFullNorm = c()
+
+DTClusterFullNorm = matrix(0, nrow = length(DTOriginal[,1]), ncol = 5)
+DTClusterFullNormtemp = DTClusterFullNorm
+
+
+for (i in 1: length(DTNormzscores[,1])) {
+  DTAccelerationScoresFullNorm = append(DTAccelerationScoresFullNorm, sum(DTNormzscores[i, DTAccelerationGroupFullNorm]*DTAccelerationGroupWeightsFullNorm)/sum(DTAccelerationGroupWeightsFullNorm))
+  DTAwarenessScoresFullNorm = append(DTAwarenessScoresFullNorm, sum(DTNormzscores[i, DTAwarenessGroupFullNorm]*DTAwarenessGroupWeightsFullNorm)/sum(DTAwarenessGroupWeightsFullNorm))
+  DTAgilityScoresFullNorm = append(DTAgilityScoresFullNorm, sum(DTNormzscores[i, DTAgilityGroupFullNorm]*DTAgilityGroupWeightsFullNorm)/sum(DTAgilityGroupWeightsFullNorm))
+  DTFinessePassRushingScoresFullNorm = append(DTFinessePassRushingScoresFullNorm, sum(DTNormzscores[i, DTFinessePassRushingGroupFullNorm]*DTFinessePassRushingGroupWeightsFullNorm)/sum(DTFinessePassRushingGroupWeightsFullNorm))
+  DTTacklingScoresFullNorm = append(DTTacklingScoresFullNorm, sum(DTNormzscores[i, DTTacklingGroupFullNorm]*DTTacklingGroupWeightsFullNorm)/sum(DTTacklingGroupWeightsFullNorm))
+  DTClusterFullNormtemp[i, 1] = DTAccelerationScoresFullNorm[i]
+  DTClusterFullNormtemp[i, 2] = DTAwarenessScoresFullNorm[i]
+  DTClusterFullNormtemp[i, 3] = DTAwarenessScoresFullNorm[i]
+  DTClusterFullNormtemp[i, 4] = DTFinessePassRushingScoresFullNorm[i]
+  DTClusterFullNormtemp[i, 5] = DTTacklingScoresFullNorm[i]
+}
+
+DTClusterFullNormtemp = data.frame(DTClusterFullNormtemp)
+
+DTrowadjclusterFullNorm = length(DTClusterFullNorm[1,])
+for (i in 1:length(DTClusterFullNormtemp)) {
+  for (j in 1:length(DTClusterFullNormtemp[,1])) {
+  DTClusterFullNorm[j, i] = DTClusterFullNormtemp[j, i]-(sum(DTClusterFullNormtemp[j,])/DTrowadjclusterFullNorm)
+  }
+}
+
+DTClusterFullNorm = data.frame(DTClusterFullNorm)
+rownames(DTClusterFullNorm) = do.call(paste, c(MaddenDTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DTClusterFullNorm) = c("Acceleration", "Awareness", "Agility", "Finesse Pass Rushing", "Tackling")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Tackling (Strength, Tackle, Block Shedding)
+# Cluster 2: Speed (Speed, Acceleration, Agility, Finesse Moves)
+# Cluster 3: Awareness (Awareness, Power Moves, Pursuit, Play Recognition)
+
+DTreducedcriteriaclusters
+
+DTTacklingGroupReducedReg = c(4, 7, 10)
+DTSpeedGroupReducedReg = c(2, 3, 5, 9)
+DTAwarenessGroupReducedReg = c(6, 8, 11, 12)
+
+summary(DTreducedfit)
+
+DTreducedcriteriaclusters
+
+DTTacklingGroupWeightsReducedReg = c(188.1, 116.8, 192.9)
+DTSpeedGroupWeightsReducedReg = c(67.41, 50.45, 50.40, 295.5)
+DTAwarenessGroupWeightsReducedReg = c(445.2, 166.2, 40.36, 172.1)
+
+DTTacklingGroupWeightsReducedReg[]/sum(DTTacklingGroupWeightsReducedReg)
+DTSpeedGroupWeightsReducedReg[]/sum(DTSpeedGroupWeightsReducedReg)
+DTAwarenessGroupWeightsReducedReg[]/sum(DTAwarenessGroupWeightsReducedReg)
+
+DTOVRReducedReg = c()
+DTTacklingScoresReducedReg = c()
+DTSpeedScoresReducedReg = c()
+DTAwarenessScoresReducedReg = c()
+
+DTClusterReducedReg = matrix(0, nrow = length(DTOriginal[,1]), ncol = 4)
+
+for (i in 1: length(DTReduced[,1])) {
+  DTOVRReducedReg = append(DTOVRReducedReg, DTReduced[i, 1])
+  DTTacklingScoresReducedReg = append(DTTacklingScoresReducedReg, sum(DTReduced[i, DTTacklingGroupReducedReg]*DTTacklingGroupWeightsReducedReg)/sum(DTTacklingGroupWeightsReducedReg))
+  DTSpeedScoresReducedReg = append(DTSpeedScoresReducedReg, sum(DTReduced[i, DTSpeedGroupReducedReg]*DTSpeedGroupWeightsReducedReg)/sum(DTSpeedGroupWeightsReducedReg))
+  DTAwarenessScoresReducedReg = append(DTAwarenessScoresReducedReg, sum(DTReduced[i, DTAwarenessGroupReducedReg]*DTAwarenessGroupWeightsReducedReg)/sum(DTAwarenessGroupWeightsReducedReg))
+  DTClusterReducedReg[i, 1] = DTOVRReducedReg[i]
+  DTClusterReducedReg[i, 2] = DTTacklingScoresReducedReg[i]
+  DTClusterReducedReg[i, 3] = DTSpeedScoresReducedReg[i]
+  DTClusterReducedReg[i, 4] = DTAwarenessScoresReducedReg[i]
+}
+DTClusterReducedReg = data.frame(DTClusterReducedReg)
+rownames(DTClusterReducedReg) = do.call(paste, c(MaddenDTs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DTClusterReducedReg) = c("Overall", "Tackling", "Speed", "Awareness")
+
+
+DTClusterReducedRegNoOverall = DTClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+DTTacklingGroupReducedNorm = DTTacklingGroupReducedReg - 1
+DTSpeedGroupReducedNorm = DTSpeedGroupReducedReg - 1
+DTAwarenessGroupReducedNorm = DTAwarenessGroupReducedReg - 1
+
+DTTacklingGroupWeightsReducedNorm = DTTacklingGroupWeightsReducedReg
+DTSpeedGroupWeightsReducedNorm = DTSpeedGroupWeightsReducedReg
+DTAwarenessGroupWeightsReducedNorm = DTAwarenessGroupWeightsReducedReg
+
+DTTacklingScoresReducedNorm = c()
+DTSpeedScoresReducedNorm = c()
+DTAwarenessScoresReducedNorm = c()
+
+
+DTClusterReducedNorm = matrix(0, nrow = length(DTNormReduced[,1]), ncol = 3)
+DTClusterReducedNormtemp = DTClusterReducedNorm
+for (i in 1: length(DTNormReduced[,1])) {
+  DTTacklingScoresReducedNorm = append(DTTacklingScoresReducedNorm, sum(DTNormReduced[i, DTTacklingGroupReducedNorm]*DTTacklingGroupWeightsReducedNorm)/sum(DTTacklingGroupWeightsReducedNorm))
+  DTSpeedScoresReducedNorm = append(DTSpeedScoresReducedNorm, sum(DTNormReduced[i, DTSpeedGroupReducedNorm]*DTSpeedGroupWeightsReducedNorm)/sum(DTSpeedGroupWeightsReducedNorm))
+  DTAwarenessScoresReducedNorm = append(DTAwarenessScoresReducedNorm, sum(DTNormReduced[i, DTAwarenessGroupReducedNorm]*DTAwarenessGroupWeightsReducedNorm)/sum(DTAwarenessGroupWeightsReducedNorm))
+  DTClusterReducedNormtemp[i, 1] = DTTacklingScoresReducedNorm[i]
+  DTClusterReducedNormtemp[i, 2] = DTSpeedScoresReducedNorm[i]
+  DTClusterReducedNormtemp[i, 3] = DTAwarenessScoresReducedNorm[i]
+}
+
+DTClusterReducedNormtemp = data.frame(DTClusterReducedNormtemp)
+
+DTrowadjclusterReducedNorm = length(DTClusterReducedNorm[1,])
+for (i in 1:length(DTClusterReducedNormtemp)) {
+  for (j in 1:length(DTClusterReducedNormtemp[,1])) {
+  DTClusterReducedNorm[j, i] = DTClusterReducedNormtemp[j, i]-(sum(DTClusterReducedNormtemp[j,])/DTrowadjclusterReducedNorm)
+  }
+}
+
+
+DTClusterReducedNorm = data.frame(DTClusterReducedNorm, row.names = do.call(paste, c(MaddenDTs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(DTClusterReducedNorm) = c("Tackling", "Speed", "Awareness")
+
+# This clusters the players 
+
+DTnclusters = 5
+
+set.seed(1)
+DTkz = kmeans(DTzscores, DTnclusters)
+set.seed(1)
+DTNormkz = kmeans(DTNormzscores, DTnclusters)
+set.seed(1)
+DTkreduced = kmeans(DTReduced, DTnclusters)
+set.seed(1)
+DTNormkreduced = kmeans(DTNormReduced, DTnclusters)
+
+set.seed(1)
+DTkclusterReducedReg = kmeans(DTClusterReducedReg, DTnclusters)
+set.seed(1)
+DTkclusterReducedNorm = kmeans(DTClusterReducedNorm, DTnclusters)
+set.seed(1)
+DTkclusterFullReg = kmeans(DTClusterFullReg, DTnclusters)
+set.seed(1)
+DTkclusterFullNorm = kmeans(DTClusterFullNorm, DTnclusters)
+
+
+clusplot(DTzscores, DTkz$cluster, lines=0, labels=2, cex=0.75)
+DTkz$centers
+clusplot(DTNormzscores, DTNormkz$cluster, lines=0, labels=2, cex=0.75)
+DTNormkz$centers
+clusplot(DTReduced, DTkreduced$cluster, lines=0, labels=2, cex=0.75)
+DTkreduced$centers
+clusplot(DTNormReduced, DTNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+DTNormkreduced$centers
+
+clusplot(DTClusterReducedReg, DTkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+DTkclusterReducedReg$centers
+clusplot(DTClusterReducedNorm, DTkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+DTkclusterReducedNorm$centers
+clusplot(DTClusterFullReg, DTkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+DTkclusterFullReg$centers
+clusplot(DTClusterFullNorm, DTkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+DTkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 QUICK AND AWARE DT
+# Cluster 2 BALANCED DT
+# Cluster 3 BIG SLOW GAP FILLER
+# Cluster 4 SPEED RUSHING DT
+# Cluster 5 STRONG DT
+
+# Full Norm
+# Cluster 1 POWER RUSHING DT
+# Cluster 2 QUICK HITTER
+# Cluster 3 BIG SLOW GAP FILLER
+# Cluster 4 SPEED RUSHING DT
+# Cluster 5 FAST BALANCED DT
+
+DTClusterReducedNorm
+DTClusterFullNorm
+DTkclusterReducedNorm
+DTkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+DTreducedmetafit <- lm(DTClusterReducedReg[,1] ~ DTClusterReducedReg[,2] + DTClusterReducedReg[,3] + DTClusterReducedReg[,4], data = DTClusterReducedReg)
+summary(DTreducedmetafit)
+DTunreducedmetafit <- lm(DTClusterFullReg[,1] ~ DTClusterFullReg[,2] + DTClusterFullReg[,3] + DTClusterFullReg[,4] + DTClusterFullReg[,5] + DTClusterFullReg[,6], data = DTClusterFullReg)
+summary(DTunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(DTreducedmetafit)
+
+DTstandardreducedweights = c(497.8, 463.8, 823.9)
+DTstandardreducedweights = DTstandardreducedweights/sum(DTstandardreducedweights)
+
+summary(DTunreducedmetafit)
+
+DTstandardunreducedweights = c(120.8, 616.8, 255.8, 295.9, 500.5)
+DTstandardunreducedweights = DTstandardunreducedweights/sum(DTstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+DTclusterreducedweights = normalizealldataframe(pnorm(DTkclusterReducedNorm$centers))
+DTclusterunreducedweights = normalizealldataframe(pnorm(DTkclusterFullNorm$centers))
+
+DTadjustedreducedweights = DTclusterreducedweights
+DTadjustedunreducedweights = DTclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  DTadjustedreducedweights[i,] = normalizetolength(DTstandardreducedweights+DTclusterreducedweights[i,])
+  DTadjustedunreducedweights[i,] = normalizetolength(DTstandardunreducedweights+DTclusterunreducedweights[i,])
+}
+
+DTTotalScoresReduced = DTClusterReducedRegNoOverall
+DTTotalScoresUnreduced = DTClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(DTOriginal[,1])) {
+  for (j in 1:5) {
+    DTTotalScoresReduced[i, j] = 100*pnorm(sum(DTClusterReducedRegNoOverall[i,]*DTadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(DTOriginal[,1])) {
+  for (j in 1:5) {
+    DTTotalScoresUnreduced[i, j] = 100*pnorm(sum(DTClusterFullRegNoOverall[i,]*DTadjustedunreducedweights[j,]))
+  }
+}
+
+DTkclusterFullNorm$centers
+DTkclusterReducedNorm$centers
+
+# Reduced Norm
+# Cluster 1 QUICK AND AWARE DT
+# Cluster 2 BALANCED DT
+# Cluster 3 BIG SLOW GAP FILLER
+# Cluster 4 SPEED RUSHING DT
+# Cluster 5 STRONG DT
+
+# Full Norm
+# Cluster 1 POWER RUSHING DT
+# Cluster 2 QUICK HITTER
+# Cluster 3 BIG SLOW GAP FILLER
+# Cluster 4 SPEED RUSHING DT
+# Cluster 5 FAST BALANCED DT
+
+
+colnames(DTTotalScoresReduced) = c("Quick And Aware DT", "Balanced DT", "Big Slow Gap Filler", "Speed Rushing DT", "Strong DT")
+colnames(DTTotalScoresUnreduced) = c("Power Rushing DT", "Quick Hitter", "Big Slow Gap Filler", "Speed Rushing DT", "Fast Balanced DT")
+
+DTkclusterFullNorm$centers
+DTTotalScoresUnreduced
+DTkclusterReducedNorm$centers
+DTTotalScoresReduced
+
+
+DTTotalScoresReducedwithOVR = DTTotalScoresReduced
+DTTotalScoresUnreducedwithOVR = DTTotalScoresUnreduced
+
+DTTotalScoresReducedwithOVR[,6] = DTOriginal[,1]
+DTTotalScoresUnreducedwithOVR[,6] = DTOriginal[,1]
+
+DTTotalScoresReducedwithOVR
+DTTotalScoresUnreducedwithOVR
+
+DTstandardunreducedweights
+DTadjustedunreducedweights
+DTstandardreducedweights
+DTadjustedreducedweights
+
+```

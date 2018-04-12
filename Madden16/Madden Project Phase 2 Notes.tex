@@ -1,0 +1,88 @@
+\documentclass[11pt]{article}
+\usepackage{fontspec}
+%\usepackage{xltxtra}
+
+\usepackage[design]{dljmv2overleaf}
+
+\title{Madden Project Phase 2 - Notes}
+
+\author{Gavin Byrnes}
+\date{June 9, 2016}
+
+%\setcounter{tocdepth}{2}
+
+\usepackage{hyperref}
+
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+
+\begin{abstract}
+
+\end{abstract}
+
+\section{Introduction}
+
+To test offense we will use a very generic defense.
+
+\section{Teams And Experiments}
+
+So we have the generic defense of 50s - currently with a team built for West Coast...so we run that team with West Coast offense and also with others.
+
+What we probably want to do is make minor tweaks to the rosters positionally speaking
+
+Also probably something about making the defense better?
+
+\section{Plans And Options}
+
+\subsection{Gameplan}
+
+A team is built to fit a specific game plan, with generic defense (or offense). The team is then simulated against itself 100 times using different game plans; the idea here is to demonstrate that the different archetypes are effective at identifying which players are better suited to each other and to different gameplans.
+\subsection{Incremental Change}
+On Offense, consider: 
+QBs
+RBs
+WR/TEs
+O-Line
+
+Rate High, Medium, Low.
+
+There are 81 possible combinations; test all of them with the same defense.
+
+On defense, consider:
+D-Line
+Linebackers
+Secondary
+
+Rate High, Medium, Low.
+
+There are 27 possible combinations; test all of them with the same defense.
+\subsection{Team Evaluation}
+Teams either randomly or exactly constructed. Two ideas, 1: give them team ratings based on individual grades, run correlations on results using these ratings. 2: run correlations on *all* individual grades.
+
+But for example, we'll have things like: A QB, B RB, C WR/TE, B O-Line, A D-Line, B Linebackers, B Secondary vs. B QB, C RB, B WR/TE, C O-Line, D D-Line, C Linebackers, A Secondary (or whatever) - and we see how that resolved itself.
+
+For the H/M/L or A/B/C/D/F we will need to apply a simpler grading method...wait we just use what we have. It's already on a 0-100 scale of normality, just tweak it a bit. 
+
+something like
+80-100: A
+60-80: B
+40-60: C
+20-40: D
+0-20: F
+
+or maybe, cause it's just starters:
+85-100: A
+70-85: B
+50-70: C
+30-50: D
+0-30: F
+
+
+
+\bibliographystyle{plain}
+\bibliography{programming}
+
+\end{document}

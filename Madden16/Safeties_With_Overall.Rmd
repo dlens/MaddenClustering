@@ -1,0 +1,460 @@
+---
+title: "Safeties_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the SAFETY attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenSAFETYs = subset(MaddenAllPlayers, Position == "FS" | Position == "SS")
+SAFETYAttributes = c(6:12, 22:23, 25:27, 39:41, 45:46)
+SAFETYOriginal = MaddenSAFETYs[SAFETYAttributes]
+rownames(SAFETYOriginal) = do.call(paste, c(MaddenSAFETYs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+SAFETYmeans = c()
+SAFETYsds = c()
+SAFETYzscores = matrix(0, nrow = length(SAFETYOriginal[,1]), ncol = length(SAFETYOriginal))
+for (i in 1:length(SAFETYOriginal)) {
+  SAFETYmeans = append(SAFETYmeans, mean(SAFETYOriginal[,i]))
+  SAFETYsds = append(SAFETYsds, sd(SAFETYOriginal[,i])*sqrt((length(SAFETYOriginal[,i])-1)/(length(SAFETYOriginal[,i]))))
+  for (j in 1:length(SAFETYOriginal[,i])) {
+    SAFETYzscores[j,i] = (SAFETYOriginal[j,i]-SAFETYmeans[i])/SAFETYsds[i]
+  }
+}
+SAFETYzscores = data.frame(SAFETYzscores)
+rownames(SAFETYzscores) = do.call(paste, c(MaddenSAFETYs[c("First.Name", "Last.Name")], sep = " "))
+colnames(SAFETYzscores) = colnames(SAFETYOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+SAFETYNormzscores = SAFETYzscores[,-1]
+SAFETYrowadjz = length(SAFETYNormzscores[1,])
+for (i in 1:length(SAFETYNormzscores)) {
+  for (j in 1:length(SAFETYNormzscores[,1])) {
+  SAFETYNormzscores[j, i] = SAFETYzscores[j, i+1]-(sum(SAFETYzscores[j,])/SAFETYrowadjz)
+  }
+}
+SAFETYNormzscores = data.frame(SAFETYNormzscores)
+rownames(SAFETYNormzscores) = do.call(paste, c(MaddenSAFETYs[c("First.Name", "Last.Name")], sep = " "))
+colnames(SAFETYNormzscores) = colnames(SAFETYzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+SAFETYover = SAFETYzscores[,1]
+
+SAFETYfit <- lm(SAFETYover ~ SAFETYzscores[,2] + SAFETYzscores[,3] + SAFETYzscores[,4] + SAFETYzscores[,5] + SAFETYzscores[,6] + SAFETYzscores[,7] + SAFETYzscores[,8] + SAFETYzscores[,9] + SAFETYzscores[,10] + SAFETYzscores[,11] + SAFETYzscores[,12] + SAFETYzscores[,13] + SAFETYzscores[,14] + SAFETYzscores[,15] + SAFETYzscores[,16] + SAFETYzscores[,17], data = SAFETYzscores)
+summary(SAFETYfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+SAFETYReduced = SAFETYzscores[,c(1, 2, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16)]
+SAFETYreducedfit <- lm(SAFETYover ~ SAFETYReduced[,2] + SAFETYReduced[,3] + SAFETYReduced[,4] + SAFETYReduced[,5] + SAFETYReduced[,6] + SAFETYReduced[,7] + SAFETYReduced[,8] + SAFETYReduced[,9] + SAFETYReduced[,10] + SAFETYReduced[,11] + SAFETYReduced[,12], data = SAFETYReduced)
+summary(SAFETYreducedfit)
+
+# This normalizes the reduced criteria
+
+SAFETYNormReduced = SAFETYNormzscores[,c(1, 2, 4, 5, 6, 7, 8, 12, 13, 14, 15)]
+SAFETYNormReduceSAFETYemp = SAFETYNormReduced
+SAFETYrowadjreduced = length(SAFETYNormReduced[1,])
+for (i in 1:length(SAFETYNormReduced)) {
+  for (j in 1:length(SAFETYNormzscores[,1])) {
+  SAFETYNormReduced[j, i] = SAFETYNormReduceSAFETYemp[j, i]-(sum(SAFETYNormReduceSAFETYemp[j,])/SAFETYrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+SAFETYreducedcovar = cov(SAFETYReduced[,-1])
+
+SAFETYcovar = cov(SAFETYOriginal[,-1])
+
+set.seed(1)
+SAFETYreducedcriteriaclusters = kmeans(SAFETYreducedcovar, 3)
+set.seed(1)
+SAFETYcriteriaclusters = kmeans(SAFETYcovar, 5)
+clusplot(SAFETYreducedcovar, SAFETYreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(SAFETYcovar, SAFETYcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Awareness (Awareness)
+# Cluster 2: Coverage (Catching, Man Coverage, Zone Coverage)
+# Cluster 3: Athleticism (Speed, Acceleration, Strength, Agility, Tackle, Jumping, Injury, Stamina, Toughness)
+# Cluster 4: Play Recognition (Play Recognition)
+# Cluster 5: Hit Power (Hit Power)
+
+# Reduced
+# Cluster 1: Speed And Man Coverage (Speed, Agility, Jumping, Man Coverage
+# Cluster 2: Awareness And Zone Coverage (Awareness, Catching, Play Recognition, Zone Coverage)
+# Cluster 3: Power (Strength, Tackle, Hit Power)
+
+SAFETYAwarenessGroupFullReg = c(6)
+SAFETYCoverageGroupFullReg = c(7, 14, 15, 17)
+SAFETYAthleticismGroupFullReg = c(2, 3, 4, 5, 8, 9, 10, 11, 12)
+SAFETYPlayRecognitionGroupFullReg = c(13)
+SAFETYHitPowerGroupFullReg = c(16)
+
+summary(SAFETYfit)
+
+SAFETYcriteriaclusters
+
+SAFETYAwarenessGroupWeightsFullReg = c(484.6)
+SAFETYCoverageGroupWeightsFullReg = c(55.98, 119.2, 171.8, 0)
+SAFETYAthleticismGroupWeightsFullReg = c(49.96, 16.03, 53.45, 29.71, 255.5, 57.07, 0, 9.579, 0)
+SAFETYPlayRecognitionGroupWeightsFullReg = c(320.4)
+SAFETYHitPowerGroupWeightsFullReg = c(151.1)
+
+SAFETYAwarenessGroupWeightsFullReg[]/sum(SAFETYAwarenessGroupWeightsFullReg)
+SAFETYCoverageGroupWeightsFullReg[]/sum(SAFETYCoverageGroupWeightsFullReg) 
+SAFETYAthleticismGroupWeightsFullReg[]/sum(SAFETYAthleticismGroupWeightsFullReg)
+SAFETYPlayRecognitionGroupWeightsFullReg[]/sum(SAFETYPlayRecognitionGroupWeightsFullReg)
+SAFETYHitPowerGroupWeightsFullReg[]/sum(SAFETYHitPowerGroupWeightsFullReg)
+
+
+SAFETYOVRFullReg = c()
+SAFETYAwarenessScoresFullReg = c()
+SAFETYCoverageScoresFullReg = c()
+SAFETYAthleticismScoresFullReg = c()
+SAFETYPlayRecognitionScoresFullReg = c()
+SAFETYHitPowerScoresFullReg = c()
+
+SAFETYClusterFullReg = matrix(0, nrow = length(SAFETYOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(SAFETYzscores[,1])) {
+  SAFETYOVRFullReg = append(SAFETYOVRFullReg, SAFETYzscores[i, 1])
+  SAFETYAwarenessScoresFullReg = append(SAFETYAwarenessScoresFullReg, sum(SAFETYzscores[i, SAFETYAwarenessGroupFullReg]*SAFETYAwarenessGroupWeightsFullReg)/sum(SAFETYAwarenessGroupWeightsFullReg))
+  SAFETYCoverageScoresFullReg = append(SAFETYCoverageScoresFullReg, sum(SAFETYzscores[i, SAFETYCoverageGroupFullReg]*SAFETYCoverageGroupWeightsFullReg)/sum(SAFETYCoverageGroupWeightsFullReg))
+  SAFETYAthleticismScoresFullReg = append(SAFETYAthleticismScoresFullReg, sum(SAFETYzscores[i, SAFETYAthleticismGroupFullReg]*SAFETYAthleticismGroupWeightsFullReg)/sum(SAFETYAthleticismGroupWeightsFullReg))
+  SAFETYPlayRecognitionScoresFullReg = append(SAFETYPlayRecognitionScoresFullReg, sum(SAFETYzscores[i, SAFETYPlayRecognitionGroupFullReg]*SAFETYPlayRecognitionGroupWeightsFullReg)/sum(SAFETYPlayRecognitionGroupWeightsFullReg))
+  SAFETYHitPowerScoresFullReg = append(SAFETYHitPowerScoresFullReg, sum(SAFETYzscores[i, SAFETYHitPowerGroupFullReg]*SAFETYHitPowerGroupWeightsFullReg)/sum(SAFETYHitPowerGroupWeightsFullReg))
+  SAFETYClusterFullReg[i, 1] = SAFETYOVRFullReg[i]
+  SAFETYClusterFullReg[i, 2] = SAFETYAwarenessScoresFullReg[i]
+  SAFETYClusterFullReg[i, 3] = SAFETYCoverageScoresFullReg[i]
+  SAFETYClusterFullReg[i, 4] = SAFETYAthleticismScoresFullReg[i]
+  SAFETYClusterFullReg[i, 5] = SAFETYPlayRecognitionScoresFullReg[i]
+  SAFETYClusterFullReg[i, 6] = SAFETYHitPowerScoresFullReg[i]
+}
+SAFETYClusterFullReg = data.frame(SAFETYClusterFullReg)
+rownames(SAFETYClusterFullReg) = do.call(paste, c(MaddenSAFETYs[c("First.Name", "Last.Name")], sep = " "))
+colnames(SAFETYClusterFullReg) = c("Overall", "Awareness", "Coverage", "Athleticism", "Play Recognition", "Hit Power")
+
+SAFETYClusterFullRegNoOverall = SAFETYClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+SAFETYAwarenessGroupFullNorm = SAFETYAwarenessGroupFullReg-1
+SAFETYCoverageGroupFullNorm = SAFETYCoverageGroupFullReg-1
+SAFETYAthleticismGroupFullNorm = SAFETYAthleticismGroupFullReg-1
+SAFETYPlayRecognitionGroupFullNorm = SAFETYPlayRecognitionGroupFullReg-1
+SAFETYHitPowerGroupFullNorm = SAFETYHitPowerGroupFullReg-1
+
+SAFETYAwarenessGroupWeightsFullNorm = SAFETYAwarenessGroupWeightsFullReg
+SAFETYCoverageGroupWeightsFullNorm = SAFETYCoverageGroupWeightsFullReg
+SAFETYAthleticismGroupWeightsFullNorm = SAFETYAthleticismGroupWeightsFullReg
+SAFETYPlayRecognitionGroupWeightsFullNorm = SAFETYPlayRecognitionGroupWeightsFullReg
+SAFETYHitPowerGroupWeightsFullNorm = SAFETYHitPowerGroupWeightsFullReg
+
+SAFETYAwarenessScoresFullNorm = c()
+SAFETYCoverageScoresFullNorm = c()
+SAFETYAthleticismScoresFullNorm = c()
+SAFETYPlayRecognitionScoresFullNorm = c()
+SAFETYHitPowerScoresFullNorm = c()
+
+SAFETYClusterFullNorm = matrix(0, nrow = length(SAFETYOriginal[,1]), ncol = 5)
+SAFETYClusterFullNormtemp = SAFETYClusterFullNorm
+
+
+for (i in 1: length(SAFETYNormzscores[,1])) {
+  SAFETYAwarenessScoresFullNorm = append(SAFETYAwarenessScoresFullNorm, sum(SAFETYNormzscores[i, SAFETYAwarenessGroupFullNorm]*SAFETYAwarenessGroupWeightsFullNorm)/sum(SAFETYAwarenessGroupWeightsFullNorm))
+  SAFETYCoverageScoresFullNorm = append(SAFETYCoverageScoresFullNorm, sum(SAFETYNormzscores[i, SAFETYCoverageGroupFullNorm]*SAFETYCoverageGroupWeightsFullNorm)/sum(SAFETYCoverageGroupWeightsFullNorm))
+  SAFETYAthleticismScoresFullNorm = append(SAFETYAthleticismScoresFullNorm, sum(SAFETYNormzscores[i, SAFETYAthleticismGroupFullNorm]*SAFETYAthleticismGroupWeightsFullNorm)/sum(SAFETYAthleticismGroupWeightsFullNorm))
+  SAFETYPlayRecognitionScoresFullNorm = append(SAFETYPlayRecognitionScoresFullNorm, sum(SAFETYNormzscores[i, SAFETYPlayRecognitionGroupFullNorm]*SAFETYPlayRecognitionGroupWeightsFullNorm)/sum(SAFETYPlayRecognitionGroupWeightsFullNorm))
+  SAFETYHitPowerScoresFullNorm = append(SAFETYHitPowerScoresFullNorm, sum(SAFETYNormzscores[i, SAFETYHitPowerGroupFullNorm]*SAFETYHitPowerGroupWeightsFullNorm)/sum(SAFETYHitPowerGroupWeightsFullNorm))
+  SAFETYClusterFullNormtemp[i, 1] = SAFETYAwarenessScoresFullNorm[i]
+  SAFETYClusterFullNormtemp[i, 2] = SAFETYCoverageScoresFullNorm[i]
+  SAFETYClusterFullNormtemp[i, 3] = SAFETYAthleticismScoresFullNorm[i]
+  SAFETYClusterFullNormtemp[i, 4] = SAFETYPlayRecognitionScoresFullNorm[i]
+  SAFETYClusterFullNormtemp[i, 5] = SAFETYHitPowerScoresFullNorm[i]
+}
+
+SAFETYClusterFullNormtemp = data.frame(SAFETYClusterFullNormtemp)
+
+SAFETYrowadjclusterFullNorm = length(SAFETYClusterFullNorm[1,])
+for (i in 1:length(SAFETYClusterFullNormtemp)) {
+  for (j in 1:length(SAFETYClusterFullNormtemp[,1])) {
+  SAFETYClusterFullNorm[j, i] = SAFETYClusterFullNormtemp[j, i]-(sum(SAFETYClusterFullNormtemp[j,])/SAFETYrowadjclusterFullNorm)
+  }
+}
+
+SAFETYClusterFullNorm = data.frame(SAFETYClusterFullNorm)
+rownames(SAFETYClusterFullNorm) = do.call(paste, c(MaddenSAFETYs[c("First.Name", "Last.Name")], sep = " "))
+colnames(SAFETYClusterFullNorm) = c("Awareness", "Coverage", "Athleticism", "Play Recognition", "Hit Power")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Speed And Man Coverage (Speed, Agility, Jumping, Man Coverage)
+# Cluster 2: Awareness And Zone Coverage (Awareness, Catching, Play Recognition, Zone Coverage)
+# Cluster 3: Power (Strength, Tackle, Hit Power)
+
+SAFETYSpeedAndManCoverageGroupReducedReg = c(2, 4, 8, 10)
+SAFETYAwarenessAndZoneCoverageGroupReducedReg = c(5, 6, 9, 11)
+SAFETYPowerGroupReducedReg = c(3, 7, 12)
+
+summary(SAFETYreducedfit)
+
+SAFETYreducedcriteriaclusters
+
+SAFETYSpeedAndManCoverageGroupWeightsReducedReg = c(57.86, 30.18, 60.73, 122.1)
+SAFETYAwarenessAndZoneCoverageGroupWeightsReducedReg = c(478.5, 58.16, 327.2, 172.4)
+SAFETYPowerGroupWeightsReducedReg = c(50.22, 252.7, 150.9)
+
+SAFETYSpeedAndManCoverageGroupWeightsReducedReg[]/sum(SAFETYSpeedAndManCoverageGroupWeightsReducedReg)
+SAFETYAwarenessAndZoneCoverageGroupWeightsReducedReg[]/sum(SAFETYAwarenessAndZoneCoverageGroupWeightsReducedReg)
+SAFETYPowerGroupWeightsReducedReg[]/sum(SAFETYPowerGroupWeightsReducedReg)
+
+SAFETYOVRReducedReg = c()
+SAFETYSpeedAndManCoverageScoresReducedReg = c()
+SAFETYAwarenessAndZoneCoverageScoresReducedReg = c()
+SAFETYPowerScoresReducedReg = c()
+
+SAFETYClusterReducedReg = matrix(0, nrow = length(SAFETYOriginal[,1]), ncol = 4)
+
+for (i in 1: length(SAFETYReduced[,1])) {
+  SAFETYOVRReducedReg = append(SAFETYOVRReducedReg, SAFETYReduced[i, 1])
+  SAFETYSpeedAndManCoverageScoresReducedReg = append(SAFETYSpeedAndManCoverageScoresReducedReg, sum(SAFETYReduced[i, SAFETYSpeedAndManCoverageGroupReducedReg]*SAFETYSpeedAndManCoverageGroupWeightsReducedReg)/sum(SAFETYSpeedAndManCoverageGroupWeightsReducedReg))
+  SAFETYAwarenessAndZoneCoverageScoresReducedReg = append(SAFETYAwarenessAndZoneCoverageScoresReducedReg, sum(SAFETYReduced[i, SAFETYAwarenessAndZoneCoverageGroupReducedReg]*SAFETYAwarenessAndZoneCoverageGroupWeightsReducedReg)/sum(SAFETYAwarenessAndZoneCoverageGroupWeightsReducedReg))
+  SAFETYPowerScoresReducedReg = append(SAFETYPowerScoresReducedReg, sum(SAFETYReduced[i, SAFETYPowerGroupReducedReg]*SAFETYPowerGroupWeightsReducedReg)/sum(SAFETYPowerGroupWeightsReducedReg))
+  SAFETYClusterReducedReg[i, 1] = SAFETYOVRReducedReg[i]
+  SAFETYClusterReducedReg[i, 2] = SAFETYSpeedAndManCoverageScoresReducedReg[i]
+  SAFETYClusterReducedReg[i, 3] = SAFETYAwarenessAndZoneCoverageScoresReducedReg[i]
+  SAFETYClusterReducedReg[i, 4] = SAFETYPowerScoresReducedReg[i]
+}
+SAFETYClusterReducedReg = data.frame(SAFETYClusterReducedReg)
+rownames(SAFETYClusterReducedReg) = do.call(paste, c(MaddenSAFETYs[c("First.Name", "Last.Name")], sep = " "))
+colnames(SAFETYClusterReducedReg) = c("Overall", "Speed And Man Coverage", "Awareness And Zone Coverage", "Power")
+
+
+SAFETYClusterReducedRegNoOverall = SAFETYClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+SAFETYSpeedAndManCoverageGroupReducedNorm = SAFETYSpeedAndManCoverageGroupReducedReg - 1
+SAFETYAwarenessAndZoneCoverageGroupReducedNorm = SAFETYAwarenessAndZoneCoverageGroupReducedReg - 1
+SAFETYPowerGroupReducedNorm = SAFETYPowerGroupReducedReg - 1
+
+SAFETYSpeedAndManCoverageGroupWeightsReducedNorm = SAFETYSpeedAndManCoverageGroupWeightsReducedReg
+SAFETYAwarenessAndZoneCoverageGroupWeightsReducedNorm = SAFETYAwarenessAndZoneCoverageGroupWeightsReducedReg
+SAFETYPowerGroupWeightsReducedNorm = SAFETYPowerGroupWeightsReducedReg
+
+SAFETYSpeedAndManCoverageScoresReducedNorm = c()
+SAFETYAwarenessAndZoneCoverageScoresReducedNorm = c()
+SAFETYPowerScoresReducedNorm = c()
+
+
+SAFETYClusterReducedNorm = matrix(0, nrow = length(SAFETYNormReduced[,1]), ncol = 3)
+SAFETYClusterReducedNormtemp = SAFETYClusterReducedNorm
+for (i in 1: length(SAFETYNormReduced[,1])) {
+  SAFETYSpeedAndManCoverageScoresReducedNorm = append(SAFETYSpeedAndManCoverageScoresReducedNorm, sum(SAFETYNormReduced[i, SAFETYSpeedAndManCoverageGroupReducedNorm]*SAFETYSpeedAndManCoverageGroupWeightsReducedNorm)/sum(SAFETYSpeedAndManCoverageGroupWeightsReducedNorm))
+  SAFETYAwarenessAndZoneCoverageScoresReducedNorm = append(SAFETYAwarenessAndZoneCoverageScoresReducedNorm, sum(SAFETYNormReduced[i, SAFETYAwarenessAndZoneCoverageGroupReducedNorm]*SAFETYAwarenessAndZoneCoverageGroupWeightsReducedNorm)/sum(SAFETYAwarenessAndZoneCoverageGroupWeightsReducedNorm))
+  SAFETYPowerScoresReducedNorm = append(SAFETYPowerScoresReducedNorm, sum(SAFETYNormReduced[i, SAFETYPowerGroupReducedNorm]*SAFETYPowerGroupWeightsReducedNorm)/sum(SAFETYPowerGroupWeightsReducedNorm))
+  SAFETYClusterReducedNormtemp[i, 1] = SAFETYSpeedAndManCoverageScoresReducedNorm[i]
+  SAFETYClusterReducedNormtemp[i, 2] = SAFETYAwarenessAndZoneCoverageScoresReducedNorm[i]
+  SAFETYClusterReducedNormtemp[i, 3] = SAFETYPowerScoresReducedNorm[i]
+}
+
+SAFETYClusterReducedNormtemp = data.frame(SAFETYClusterReducedNormtemp)
+
+SAFETYrowadjclusterReducedNorm = length(SAFETYClusterReducedNorm[1,])
+for (i in 1:length(SAFETYClusterReducedNormtemp)) {
+  for (j in 1:length(SAFETYClusterReducedNormtemp[,1])) {
+  SAFETYClusterReducedNorm[j, i] = SAFETYClusterReducedNormtemp[j, i]-(sum(SAFETYClusterReducedNormtemp[j,])/SAFETYrowadjclusterReducedNorm)
+  }
+}
+
+
+SAFETYClusterReducedNorm = data.frame(SAFETYClusterReducedNorm, row.names = do.call(paste, c(MaddenSAFETYs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(SAFETYClusterReducedNorm) = c("Speed And Man Coverage", "Awareness And Zone Coverage", "Power")
+
+# This clusters the players 
+
+SAFETYnclusters = 5
+
+set.seed(1)
+SAFETYkz = kmeans(SAFETYzscores, SAFETYnclusters)
+set.seed(1)
+SAFETYNormkz = kmeans(SAFETYNormzscores, SAFETYnclusters)
+set.seed(1)
+SAFETYkreduced = kmeans(SAFETYReduced, SAFETYnclusters)
+set.seed(1)
+SAFETYNormkreduced = kmeans(SAFETYNormReduced, SAFETYnclusters)
+
+set.seed(1)
+SAFETYkclusterReducedReg = kmeans(SAFETYClusterReducedReg, SAFETYnclusters)
+set.seed(1)
+SAFETYkclusterReducedNorm = kmeans(SAFETYClusterReducedNorm, SAFETYnclusters)
+set.seed(1)
+SAFETYkclusterFullReg = kmeans(SAFETYClusterFullReg, SAFETYnclusters)
+set.seed(1)
+SAFETYkclusterFullNorm = kmeans(SAFETYClusterFullNorm, SAFETYnclusters)
+
+
+clusplot(SAFETYzscores, SAFETYkz$cluster, lines=0, labels=2, cex=0.75)
+SAFETYkz$centers
+clusplot(SAFETYNormzscores, SAFETYNormkz$cluster, lines=0, labels=2, cex=0.75)
+SAFETYNormkz$centers
+clusplot(SAFETYReduced, SAFETYkreduced$cluster, lines=0, labels=2, cex=0.75)
+SAFETYkreduced$centers
+clusplot(SAFETYNormReduced, SAFETYNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+SAFETYNormkreduced$centers
+
+clusplot(SAFETYClusterReducedReg, SAFETYkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+SAFETYkclusterReducedReg$centers
+clusplot(SAFETYClusterReducedNorm, SAFETYkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+SAFETYkclusterReducedNorm$centers
+clusplot(SAFETYClusterFullReg, SAFETYkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+SAFETYkclusterFullReg$centers
+clusplot(SAFETYClusterFullNorm, SAFETYkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+SAFETYkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 SPEED COVERAGE SAFETY
+# Cluster 2 BALANCED SAFETY
+# Cluster 3 RUN STOPPING SAFETY
+# Cluster 4 DEEP FREE SAFETY
+# Cluster 5 POWER ZONE SAFETY
+
+# Full Norm
+# Cluster 1 BALANCED SAFETY
+# Cluster 2 SPEED COVERAGE SAFETY
+# Cluster 3 RUN STOPPING SAFETY
+# Cluster 4 DEEP FREE SAFETY
+# Cluster 5 POWER ZONE SAFETY
+
+SAFETYClusterReducedNorm
+SAFETYClusterFullNorm
+SAFETYkclusterReducedNorm
+SAFETYkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+SAFETYreducedmetafit <- lm(SAFETYClusterReducedReg[,1] ~ SAFETYClusterReducedReg[,2] + SAFETYClusterReducedReg[,3] + SAFETYClusterReducedReg[,4], data = SAFETYClusterReducedReg)
+summary(SAFETYreducedmetafit)
+SAFETYunreducedmetafit <- lm(SAFETYClusterFullReg[,1] ~ SAFETYClusterFullReg[,2] + SAFETYClusterFullReg[,3] + SAFETYClusterFullReg[,4] + SAFETYClusterFullReg[,5] + SAFETYClusterFullReg[,6], data = SAFETYClusterFullReg)
+summary(SAFETYunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(SAFETYreducedmetafit)
+
+SAFETYstandardreducedweights = c(270.9, 1035, 453.9)
+SAFETYstandardreducedweights = SAFETYstandardreducedweights/sum(SAFETYstandardreducedweights)
+
+summary(SAFETYunreducedmetafit)
+
+SAFETYstandardunreducedweights = c(478.8, 350.9, 466.7, 320.0, 148.8)
+SAFETYstandardunreducedweights = SAFETYstandardunreducedweights/sum(SAFETYstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+SAFETYclusterreducedweights = normalizealldataframe(pnorm(SAFETYkclusterReducedNorm$centers))
+SAFETYclusterunreducedweights = normalizealldataframe(pnorm(SAFETYkclusterFullNorm$centers))
+
+SAFETYadjustedreducedweights = SAFETYclusterreducedweights
+SAFETYadjustedunreducedweights = SAFETYclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  SAFETYadjustedreducedweights[i,] = normalizetolength(SAFETYstandardreducedweights+SAFETYclusterreducedweights[i,])
+  SAFETYadjustedunreducedweights[i,] = normalizetolength(SAFETYstandardunreducedweights+SAFETYclusterunreducedweights[i,])
+}
+
+SAFETYTotalScoresReduced = SAFETYClusterReducedRegNoOverall
+SAFETYTotalScoresUnreduced = SAFETYClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(SAFETYOriginal[,1])) {
+  for (j in 1:5) {
+    SAFETYTotalScoresReduced[i, j] = 100*pnorm(sum(SAFETYClusterReducedRegNoOverall[i,]*SAFETYadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(SAFETYOriginal[,1])) {
+  for (j in 1:5) {
+    SAFETYTotalScoresUnreduced[i, j] = 100*pnorm(sum(SAFETYClusterFullRegNoOverall[i,]*SAFETYadjustedunreducedweights[j,]))
+  }
+}
+
+# Reduced Norm
+# Cluster 1 SPEED COVERAGE SAFETY
+# Cluster 2 BALANCED SAFETY
+# Cluster 3 RUN STOPPING SAFETY
+# Cluster 4 DEEP FREE SAFETY
+# Cluster 5 POWER ZONE SAFETY
+
+# Full Norm
+# Cluster 1 BALANCED SAFETY
+# Cluster 2 SPEED COVERAGE SAFETY
+# Cluster 3 RUN STOPPING SAFETY
+# Cluster 4 DEEP FREE SAFETY
+# Cluster 5 POWER ZONE SAFETY
+
+
+colnames(SAFETYTotalScoresReduced) = c("Speed Coverage SAFETY", "Balanced SAFETY", "Run Stopping SAFETY", "Deep Free SAFETY", "Power Zone SAFETY")
+colnames(SAFETYTotalScoresUnreduced) = c("Balanced SAFETY", "Speed Coverage SAFETY", "Run Stopping SAFETY", "Deep Free SAFETY", "Power Zone SAFETY")
+
+SAFETYkclusterFullNorm$centers
+SAFETYTotalScoresUnreduced
+SAFETYkclusterReducedNorm$centers
+SAFETYTotalScoresReduced
+
+
+SAFETYTotalScoresReducedwithOVR = SAFETYTotalScoresReduced
+SAFETYTotalScoresUnreducedwithOVR = SAFETYTotalScoresUnreduced
+
+SAFETYTotalScoresReducedwithOVR[,6] = SAFETYOriginal[,1]
+SAFETYTotalScoresUnreducedwithOVR[,6] = SAFETYOriginal[,1]
+
+SAFETYTotalScoresReducedwithOVR
+SAFETYTotalScoresUnreducedwithOVR
+
+
+SAFETYstandardunreducedweights
+SAFETYadjustedunreducedweights
+SAFETYstandardreducedweights
+SAFETYadjustedreducedweights
+
+```

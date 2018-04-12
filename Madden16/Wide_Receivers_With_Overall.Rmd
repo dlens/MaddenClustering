@@ -1,0 +1,452 @@
+---
+title: "Wide_Receivers_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the WR attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenWRs = MaddenAllPlayers[which(MaddenAllPlayers$Position == "WR"),]
+WRAttributes = c(6:13, 23, 25:33, 42:44, 47)
+WROriginal = MaddenWRs[WRAttributes]
+rownames(WROriginal) = do.call(paste, c(MaddenWRs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+WRmeans = c()
+WRsds = c()
+WRzscores = matrix(0, nrow = length(WROriginal[,1]), ncol = length(WROriginal))
+for (i in 1:length(WROriginal)) {
+  WRmeans = append(WRmeans, mean(WROriginal[,i]))
+  WRsds = append(WRsds, sd(WROriginal[,i])*sqrt((length(WROriginal[,i])-1)/(length(WROriginal[,i]))))
+  for (j in 1:length(WROriginal[,i])) {
+    WRzscores[j,i] = (WROriginal[j,i]-WRmeans[i])/WRsds[i]
+  }
+}
+WRzscores = data.frame(WRzscores)
+rownames(WRzscores) = do.call(paste, c(MaddenWRs[c("First.Name", "Last.Name")], sep = " "))
+colnames(WRzscores) = colnames(WROriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+WRNormzscores = WRzscores[,-1]
+WRrowadjz = length(WRNormzscores[1,])
+for (i in 1:length(WRNormzscores)) {
+  for (j in 1:length(WRNormzscores[,1])) {
+  WRNormzscores[j, i] = WRzscores[j, i+1]-(sum(WRzscores[j,])/WRrowadjz)
+  }
+}
+WRNormzscores = data.frame(WRNormzscores)
+rownames(WRNormzscores) = do.call(paste, c(MaddenWRs[c("First.Name", "Last.Name")], sep = " "))
+colnames(WRNormzscores) = colnames(WRzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+WRover = WRzscores[,1]
+
+WRfit <- lm(WRover ~ WRzscores[,2] + WRzscores[,3] + WRzscores[,4] + WRzscores[,5] + WRzscores[,6] + WRzscores[,7] + WRzscores[,8] + WRzscores[,9] + WRzscores[,10] + WRzscores[,11] + WRzscores[,12] + WRzscores[,13] + WRzscores[,14] + WRzscores[,15] + WRzscores[,16] + WRzscores[,17] + WRzscores[,18] + WRzscores[,19] + WRzscores[,20] + WRzscores[,21] + WRzscores[,22], data = WRzscores)
+summary(WRfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+WRReduced = WRzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22)]
+WRreducedfit <- lm(WRover ~ WRReduced[,2] + WRReduced[,3] + WRReduced[,4] + WRReduced[,5] + WRReduced[,6] + WRReduced[,7] + WRReduced[,8] + WRReduced[,9] + WRReduced[,10] + WRReduced[,11] + WRReduced[,12] + WRReduced[,13] + WRReduced[,14] + WRReduced[,15] + WRReduced[,16] + WRReduced[,17] + WRReduced[,18] + WRReduced[,19], data = WRReduced)
+summary(WRreducedfit)
+
+# This normalizes the reduced criteria
+
+WRNormReduced = WRNormzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21)]
+WRNormReducedtemp = WRNormReduced
+WRrowadjreduced = length(WRNormReduced[1,])
+for (i in 1:length(WRNormReduced)) {
+  for (j in 1:length(WRNormzscores[,1])) {
+  WRNormReduced[j, i] = WRNormReducedtemp[j, i]-(sum(WRNormReducedtemp[j,])/WRrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+WRreducedcovar = cov(WRReduced[,-1])
+
+WRcovar = cov(WROriginal[,-1])
+
+set.seed(1)
+WRreducedcriteriaclusters = kmeans(WRreducedcovar, 3)
+set.seed(1)
+WRcriteriaclusters = kmeans(WRcovar, 5)
+clusplot(WRreducedcovar, WRreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(WRcovar, WRcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Receiver Awareness (Awareness, Route Running)
+# Cluster 2: Catching (Catching, Toughness, Spectacular Catch, Catch In Traffic)
+# Cluster 3: Power Running (Strength, Trucking, Stiff Arm, Release)
+# Cluster 4: Shiftiness (Elusiveness, Juke Move)
+# Cluster 5: Speed Running (Speed, Acceleration, Agility, Carrying, Jumping, Injury, Stamina, BC Vision, Spin Move)
+
+# Reduced
+# Cluster 1: Receiving (Awareness, Catching, Jumping, Spectacular Catch, Catch In Traffic, Route Running)
+# Cluster 2: Power Running (Strength, Carrying, Trucking, Stiff Arm, Release)
+# Cluster 3: Speed Running (Speed, Acceleration, Agility, Elusiveness, BC Vision, Spin Move, Juke Move)
+
+WRReceiverAwarenessGroupFullReg = c(6, 21)
+WRCatchingGroupFullReg = c(7, 12, 19, 20)
+WRPowerRunningGroupFullReg = c(4, 13, 16, 22)
+WRShiftinessGroupFullReg = c(14, 18)
+WRSpeedRunningGroupFullReg = c(2, 3, 5, 8, 9, 10, 11, 15, 17)
+
+summary(WRfit)
+
+WRcriteriaclusters
+
+WRReceiverAwarenessGroupWeightsFullReg = c(313.6, 284.4)
+WRCatchingGroupWeightsFullReg = c(160.3, 0, 65.16, 134.1)
+WRPowerRunningGroupWeightsFullReg = c(48.03, 32.09, 24.27, 209.3)
+WRShiftinessGroupWeightsFullReg = c(84.09, 10.85)
+WRSpeedRunningGroupWeightsFullReg = c(81.30, 38.03, 45.42, 41.46, 30.04, 0, 0, 29.98, 10.37)
+
+WRReceiverAwarenessGroupWeightsFullReg[]/sum(WRReceiverAwarenessGroupWeightsFullReg)
+WRCatchingGroupWeightsFullReg[]/sum(WRCatchingGroupWeightsFullReg)
+WRPowerRunningGroupWeightsFullReg[]/sum(WRPowerRunningGroupWeightsFullReg)
+WRShiftinessGroupWeightsFullReg[]/sum(WRShiftinessGroupWeightsFullReg) 
+WRSpeedRunningGroupWeightsFullReg[]/sum(WRSpeedRunningGroupWeightsFullReg)
+
+WROVRFullReg = c()
+WRReceiverAwarenessScoresFullReg = c()
+WRCatchingScoresFullReg = c()
+WRPowerRunningScoresFullReg = c()
+WRShiftinessScoresFullReg = c()
+WRSpeedRunningScoresFullReg = c()
+
+WRClusterFullReg = matrix(0, nrow = length(WROriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(WRzscores[,1])) {
+  WROVRFullReg = append(WROVRFullReg, WRzscores[i, 1])
+  WRReceiverAwarenessScoresFullReg = append(WRReceiverAwarenessScoresFullReg, sum(WRzscores[i, WRReceiverAwarenessGroupFullReg]*WRReceiverAwarenessGroupWeightsFullReg)/sum(WRReceiverAwarenessGroupWeightsFullReg))
+  WRCatchingScoresFullReg = append(WRCatchingScoresFullReg, sum(WRzscores[i, WRCatchingGroupFullReg]*WRCatchingGroupWeightsFullReg)/sum(WRCatchingGroupWeightsFullReg))
+  WRPowerRunningScoresFullReg = append(WRPowerRunningScoresFullReg, sum(WRzscores[i, WRPowerRunningGroupFullReg]*WRPowerRunningGroupWeightsFullReg)/sum(WRPowerRunningGroupWeightsFullReg))
+  WRShiftinessScoresFullReg = append(WRShiftinessScoresFullReg, sum(WRzscores[i, WRShiftinessGroupFullReg]*WRShiftinessGroupWeightsFullReg)/sum(WRShiftinessGroupWeightsFullReg))
+  WRSpeedRunningScoresFullReg = append(WRSpeedRunningScoresFullReg, sum(WRzscores[i, WRSpeedRunningGroupFullReg]*WRSpeedRunningGroupWeightsFullReg)/sum(WRSpeedRunningGroupWeightsFullReg))
+  WRClusterFullReg[i, 1] = WROVRFullReg[i]
+  WRClusterFullReg[i, 2] = WRReceiverAwarenessScoresFullReg[i]
+  WRClusterFullReg[i, 3] = WRCatchingScoresFullReg[i]
+  WRClusterFullReg[i, 4] = WRPowerRunningScoresFullReg[i]
+  WRClusterFullReg[i, 5] = WRShiftinessScoresFullReg[i]
+  WRClusterFullReg[i, 6] = WRSpeedRunningScoresFullReg[i]
+}
+WRClusterFullReg = data.frame(WRClusterFullReg)
+rownames(WRClusterFullReg) = do.call(paste, c(MaddenWRs[c("First.Name", "Last.Name")], sep = " "))
+colnames(WRClusterFullReg) = c("Overall", "Receiver Awareness", "Catching", "Power Running", "Shiftiness", "Speed Running")
+
+WRClusterFullRegNoOverall = WRClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+WRReceiverAwarenessGroupFullNorm = WRReceiverAwarenessGroupFullReg-1
+WRCatchingGroupFullNorm = WRCatchingGroupFullReg-1
+WRPowerRunningGroupFullNorm = WRPowerRunningGroupFullReg-1
+WRShiftinessGroupFullNorm = WRShiftinessGroupFullReg-1
+WRSpeedRunningGroupFullNorm = WRSpeedRunningGroupFullReg-1
+
+WRReceiverAwarenessGroupWeightsFullNorm = WRReceiverAwarenessGroupWeightsFullReg
+WRCatchingGroupWeightsFullNorm = WRCatchingGroupWeightsFullReg
+WRPowerRunningGroupWeightsFullNorm = WRPowerRunningGroupWeightsFullReg
+WRShiftinessGroupWeightsFullNorm = WRShiftinessGroupWeightsFullReg
+WRSpeedRunningGroupWeightsFullNorm = WRSpeedRunningGroupWeightsFullReg
+
+WRReceiverAwarenessScoresFullNorm = c()
+WRCatchingScoresFullNorm = c()
+WRPowerRunningScoresFullNorm = c()
+WRShiftinessScoresFullNorm = c()
+WRSpeedRunningScoresFullNorm = c()
+
+WRClusterFullNorm = matrix(0, nrow = length(WROriginal[,1]), ncol = 5)
+WRClusterFullNormtemp = WRClusterFullNorm
+
+
+for (i in 1: length(WRNormzscores[,1])) {
+  WRReceiverAwarenessScoresFullNorm = append(WRReceiverAwarenessScoresFullNorm, sum(WRNormzscores[i, WRReceiverAwarenessGroupFullNorm]*WRReceiverAwarenessGroupWeightsFullNorm)/sum(WRReceiverAwarenessGroupWeightsFullNorm))
+  WRCatchingScoresFullNorm = append(WRCatchingScoresFullNorm, sum(WRNormzscores[i, WRCatchingGroupFullNorm]*WRCatchingGroupWeightsFullNorm)/sum(WRCatchingGroupWeightsFullNorm))
+  WRPowerRunningScoresFullNorm = append(WRPowerRunningScoresFullNorm, sum(WRNormzscores[i, WRPowerRunningGroupFullNorm]*WRPowerRunningGroupWeightsFullNorm)/sum(WRPowerRunningGroupWeightsFullNorm))
+  WRShiftinessScoresFullNorm = append(WRShiftinessScoresFullNorm, sum(WRNormzscores[i, WRShiftinessGroupFullNorm]*WRShiftinessGroupWeightsFullNorm)/sum(WRShiftinessGroupWeightsFullNorm))
+  WRSpeedRunningScoresFullNorm = append(WRSpeedRunningScoresFullNorm, sum(WRNormzscores[i, WRSpeedRunningGroupFullNorm]*WRSpeedRunningGroupWeightsFullNorm)/sum(WRSpeedRunningGroupWeightsFullNorm))
+  WRClusterFullNormtemp[i, 1] = WRReceiverAwarenessScoresFullNorm[i]
+  WRClusterFullNormtemp[i, 2] = WRCatchingScoresFullNorm[i]
+  WRClusterFullNormtemp[i, 3] = WRPowerRunningScoresFullNorm[i]
+  WRClusterFullNormtemp[i, 4] = WRShiftinessScoresFullNorm[i]
+  WRClusterFullNormtemp[i, 5] = WRSpeedRunningScoresFullNorm[i]
+}
+
+WRClusterFullNormtemp = data.frame(WRClusterFullNormtemp)
+
+WRrowadjclusterFullNorm = length(WRClusterFullNorm[1,])
+for (i in 1:length(WRClusterFullNormtemp)) {
+  for (j in 1:length(WRClusterFullNormtemp[,1])) {
+  WRClusterFullNorm[j, i] = WRClusterFullNormtemp[j, i]-(sum(WRClusterFullNormtemp[j,])/WRrowadjclusterFullNorm)
+  }
+}
+
+WRClusterFullNorm = data.frame(WRClusterFullNorm)
+rownames(WRClusterFullNorm) = do.call(paste, c(MaddenWRs[c("First.Name", "Last.Name")], sep = " "))
+colnames(WRClusterFullNorm) = c("Receiver Awareness", "Catching", "Power Running", "Shiftiness", "Speed Running")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Receiving (Awareness, Catching, Jumping, Spectacular Catch, Catch In Traffic, Route Running)
+# Cluster 2: Power Running (Strength, Carrying, Trucking, Stiff Arm, Release)
+# Cluster 3: Speed Running (Speed, Acceleration, Agility, Elusiveness, BC Vision, Spin Move, Juke Move)
+
+
+WRReceivingGroupReducedReg = c(6, 7, 9, 16, 17, 18)
+WRPowerRunningGroupReducedReg = c(4, 8, 10, 13, 19)
+WRSpeedRunningGroupReducedReg = c(2, 3, 5, 11, 12, 14, 15)
+
+summary(WRreducedfit)
+
+WRreducedcriteriaclusters
+
+WRReceivingGroupWeightsReducedReg = c(313.4, 160.2, 30.00, 65.16, 133.9, 284.4)
+WRPowerRunningGroupWeightsReducedReg = c(48.13, 41.46, 32.09, 24.28, 209.3)
+WRSpeedRunningGroupWeightsReducedReg = c(81.46, 37.94, 45.37, 84.08, 29.85, 10.32, 10.93)
+
+WRReceivingGroupWeightsReducedReg[]/sum(WRReceivingGroupWeightsReducedReg)
+WRPowerRunningGroupWeightsReducedReg[]/sum(WRPowerRunningGroupWeightsReducedReg)
+WRSpeedRunningGroupWeightsReducedReg[]/sum(WRSpeedRunningGroupWeightsReducedReg)
+
+WROVRReducedReg = c()
+WRReceivingScoresReducedReg = c()
+WRPowerRunningScoresReducedReg = c()
+WRSpeedRunningScoresReducedReg = c()
+
+WRClusterReducedReg = matrix(0, nrow = length(WROriginal[,1]), ncol = 4)
+
+for (i in 1: length(WRReduced[,1])) {
+  WROVRReducedReg = append(WROVRReducedReg, WRReduced[i, 1])
+  WRReceivingScoresReducedReg = append(WRReceivingScoresReducedReg, sum(WRReduced[i, WRReceivingGroupReducedReg]*WRReceivingGroupWeightsReducedReg)/sum(WRReceivingGroupWeightsReducedReg))
+  WRPowerRunningScoresReducedReg = append(WRPowerRunningScoresReducedReg, sum(WRReduced[i, WRPowerRunningGroupReducedReg]*WRPowerRunningGroupWeightsReducedReg)/sum(WRPowerRunningGroupWeightsReducedReg))
+  WRSpeedRunningScoresReducedReg = append(WRSpeedRunningScoresReducedReg, sum(WRReduced[i, WRSpeedRunningGroupReducedReg]*WRSpeedRunningGroupWeightsReducedReg)/sum(WRSpeedRunningGroupWeightsReducedReg))
+  WRClusterReducedReg[i, 1] = WROVRReducedReg[i]
+  WRClusterReducedReg[i, 2] = WRReceivingScoresReducedReg[i]
+  WRClusterReducedReg[i, 3] = WRPowerRunningScoresReducedReg[i]
+  WRClusterReducedReg[i, 4] = WRSpeedRunningScoresReducedReg[i]
+}
+WRClusterReducedReg = data.frame(WRClusterReducedReg)
+rownames(WRClusterReducedReg) = do.call(paste, c(MaddenWRs[c("First.Name", "Last.Name")], sep = " "))
+colnames(WRClusterReducedReg) = c("Overall", "Receiving", "Power Running", "Speed Running")
+
+
+WRClusterReducedRegNoOverall = WRClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+WRReceivingGroupReducedNorm = WRReceivingGroupReducedReg - 1
+WRPowerRunningGroupReducedNorm = WRPowerRunningGroupReducedReg - 1
+WRSpeedRunningGroupReducedNorm = WRSpeedRunningGroupReducedReg - 1
+
+WRReceivingGroupWeightsReducedNorm = WRReceivingGroupWeightsReducedReg
+WRPowerRunningGroupWeightsReducedNorm = WRPowerRunningGroupWeightsReducedReg
+WRSpeedRunningGroupWeightsReducedNorm = WRSpeedRunningGroupWeightsReducedReg
+
+WRReceivingScoresReducedNorm = c()
+WRPowerRunningScoresReducedNorm = c()
+WRSpeedRunningScoresReducedNorm = c()
+
+
+WRClusterReducedNorm = matrix(0, nrow = length(WRNormReduced[,1]), ncol = 3)
+WRClusterReducedNormtemp = WRClusterReducedNorm
+for (i in 1: length(WRNormReduced[,1])) {
+  WRReceivingScoresReducedNorm = append(WRReceivingScoresReducedNorm, sum(WRNormReduced[i, WRReceivingGroupReducedNorm]*WRReceivingGroupWeightsReducedNorm)/sum(WRReceivingGroupWeightsReducedNorm))
+  WRPowerRunningScoresReducedNorm = append(WRPowerRunningScoresReducedNorm, sum(WRNormReduced[i, WRPowerRunningGroupReducedNorm]*WRPowerRunningGroupWeightsReducedNorm)/sum(WRPowerRunningGroupWeightsReducedNorm))
+  WRSpeedRunningScoresReducedNorm = append(WRSpeedRunningScoresReducedNorm, sum(WRNormReduced[i, WRSpeedRunningGroupReducedNorm]*WRSpeedRunningGroupWeightsReducedNorm)/sum(WRSpeedRunningGroupWeightsReducedNorm))
+  WRClusterReducedNormtemp[i, 1] = WRReceivingScoresReducedNorm[i]
+  WRClusterReducedNormtemp[i, 2] = WRPowerRunningScoresReducedNorm[i]
+  WRClusterReducedNormtemp[i, 3] = WRSpeedRunningScoresReducedNorm[i]
+}
+
+WRClusterReducedNormtemp = data.frame(WRClusterReducedNormtemp)
+
+WRrowadjclusterReducedNorm = length(WRClusterReducedNorm[1,])
+for (i in 1:length(WRClusterReducedNormtemp)) {
+  for (j in 1:length(WRClusterReducedNormtemp[,1])) {
+  WRClusterReducedNorm[j, i] = WRClusterReducedNormtemp[j, i]-(sum(WRClusterReducedNormtemp[j,])/WRrowadjclusterReducedNorm)
+  }
+}
+
+
+WRClusterReducedNorm = data.frame(WRClusterReducedNorm, row.names = do.call(paste, c(MaddenWRs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(WRClusterReducedNorm) = c("Receiving", "Power Running", "Speed Running")
+
+# This clusters the players 
+
+WRnclusters = 5
+
+set.seed(1)
+WRkz = kmeans(WRzscores, WRnclusters)
+set.seed(1)
+WRNormkz = kmeans(WRNormzscores, WRnclusters)
+set.seed(1)
+WRkreduced = kmeans(WRReduced, WRnclusters)
+set.seed(1)
+WRNormkreduced = kmeans(WRNormReduced, WRnclusters)
+
+set.seed(1)
+WRkclusterReducedReg = kmeans(WRClusterReducedReg, WRnclusters)
+set.seed(1)
+WRkclusterReducedNorm = kmeans(WRClusterReducedNorm, WRnclusters)
+set.seed(1)
+WRkclusterFullReg = kmeans(WRClusterFullReg, WRnclusters)
+set.seed(1)
+WRkclusterFullNorm = kmeans(WRClusterFullNorm, WRnclusters)
+
+
+clusplot(WRzscores, WRkz$cluster, lines=0, labels=2, cex=0.75)
+WRkz$centers
+clusplot(WRNormzscores, WRNormkz$cluster, lines=0, labels=2, cex=0.75)
+WRNormkz$centers
+clusplot(WRReduced, WRkreduced$cluster, lines=0, labels=2, cex=0.75)
+WRkreduced$centers
+clusplot(WRNormReduced, WRNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+WRNormkreduced$centers
+
+clusplot(WRClusterReducedReg, WRkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+WRkclusterReducedReg$centers
+clusplot(WRClusterReducedNorm, WRkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+WRkclusterReducedNorm$centers
+clusplot(WRClusterFullReg, WRkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+WRkclusterFullReg$centers
+clusplot(WRClusterFullNorm, WRkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+WRkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 PASS CATCHER (Good receiver)
+# Cluster 2 PURE BURNER (Very fast, not strong)
+# Cluster 3 POWER RUNNING WR (Good power, not very good at catching)
+# Cluster 4 BALANCED WR
+# Cluster 5 POSSESSION RECEIVER (Good Power Running, Good Receiving, No Speed)
+
+# Full Norm
+# Cluster 1 PASS CATCHER (Good receiver, not powerful)
+# Cluster 2 PURE BURNER
+# Cluster 3 POWER RUNNING WR
+# Cluster 4 BALANCED WR
+# Cluster 5 POSSESSION RECEIVER High Awareness, High Catching, High Power, Very Low Speed
+
+WRClusterReducedNorm
+WRClusterFullNorm
+WRkclusterReducedNorm
+WRkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+WRreducedmetafit <- lm(WRClusterReducedReg[,1] ~ WRClusterReducedReg[,2] + WRClusterReducedReg[,3] + WRClusterReducedReg[,4], data = WRClusterReducedReg)
+summary(WRreducedmetafit)
+WRunreducedmetafit <- lm(WRClusterFullReg[,1] ~ WRClusterFullReg[,2] + WRClusterFullReg[,3] + WRClusterFullReg[,4] + WRClusterFullReg[,5] + WRClusterFullReg[,6], data = WRClusterFullReg)
+summary(WRunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(WRreducedmetafit)
+
+WRstandardreducedweights = c(987.2, 355.2, 299.9)
+WRstandardreducedweights = WRstandardreducedweights/sum(WRstandardreducedweights)
+
+summary(WRunreducedmetafit)
+
+WRstandardunreducedweights = c(597.8, 359.3, 313.7, 94.9, 276.6)
+WRstandardunreducedweights = WRstandardunreducedweights/sum(WRstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+WRclusterreducedweights = normalizealldataframe(pnorm(WRkclusterReducedNorm$centers))
+WRclusterunreducedweights = normalizealldataframe(pnorm(WRkclusterFullNorm$centers))
+
+WRadjustedreducedweights = WRclusterreducedweights
+WRadjustedunreducedweights = WRclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  WRadjustedreducedweights[i,] = normalizetolength(WRstandardreducedweights+WRclusterreducedweights[i,])
+  WRadjustedunreducedweights[i,] = normalizetolength(WRstandardunreducedweights+WRclusterunreducedweights[i,])
+}
+
+WRTotalScoresReduced = WRClusterReducedRegNoOverall
+WRTotalScoresUnreduced = WRClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(WROriginal[,1])) {
+  for (j in 1:5) {
+    WRTotalScoresReduced[i, j] = 100*pnorm(sum(WRClusterReducedRegNoOverall[i,]*WRadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(WROriginal[,1])) {
+  for (j in 1:5) {
+    WRTotalScoresUnreduced[i, j] = 100*pnorm(sum(WRClusterFullRegNoOverall[i,]*WRadjustedunreducedweights[j,]))
+  }
+}
+
+# Full Norm
+# Cluster 1 PASS CATCHER (Good receiver, not powerful)
+# Cluster 2 PURE BURNER
+# Cluster 3 POWER RUNNING WR
+# Cluster 4 BALANCED WR
+# Cluster 5 POSSESSION RECEIVER High Awareness, High Catching, High Power, Very Low Speed
+
+colnames(WRTotalScoresUnreduced) = c("Pass Catcher", "Pure Burner", "Power Running WR", "Balanced WR", "Possession Receiver")
+colnames(WRTotalScoresReduced) = c("Pass Catcher", "Pure Burner", "Power Running WR", "Balanced WR", "Possession Receiver")
+
+
+WRkclusterFullNorm$centers
+WRTotalScoresUnreduced
+WRkclusterReducedNorm$centers
+WRTotalScoresReduced
+
+
+WRTotalScoresReducedwithOVR = WRTotalScoresReduced
+WRTotalScoresUnreducedwithOVR = WRTotalScoresUnreduced
+
+WRTotalScoresReducedwithOVR[,6] = WROriginal[,1]
+WRTotalScoresUnreducedwithOVR[,6] = WROriginal[,1]
+
+WRTotalScoresReducedwithOVR
+WRTotalScoresUnreducedwithOVR
+
+WRstandardunreducedweights
+WRadjustedunreducedweights
+WRstandardreducedweights
+WRadjustedreducedweights
+
+
+```

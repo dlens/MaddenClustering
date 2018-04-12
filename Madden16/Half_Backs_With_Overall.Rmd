@@ -1,0 +1,386 @@
+---
+title: "Half_Back_Overall"
+output: html_document
+---
+---
+
+
+
+This first thing describes:
+* Run multiple regression 
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the HB attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenHBs = MaddenAllPlayers[which(MaddenAllPlayers$Position == "HB"),]
+HBAttributes = c(6:13, 21, 23, 25:33, 42:44)
+HBOriginal = MaddenHBs[HBAttributes]
+rownames(HBOriginal) = do.call(paste, c(MaddenHBs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+HBmeans = c()
+HBsds = c()
+HBzscores = matrix(0, nrow = length(HBOriginal[,1]), ncol = length(HBOriginal))
+for (i in 1:length(HBOriginal)) {
+  HBmeans = append(HBmeans, mean(HBOriginal[,i]))
+  HBsds = append(HBsds, sd(HBOriginal[,i])*sqrt((length(HBOriginal[,i])-1)/(length(HBOriginal[,i]))))
+  for (j in 1:length(HBOriginal[,i])) {
+    HBzscores[j,i] = (HBOriginal[j,i]-HBmeans[i])/HBsds[i]
+  }
+}
+HBzscores = data.frame(HBzscores)
+rownames(HBzscores) = do.call(paste, c(MaddenHBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(HBzscores) = colnames(HBOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+HBNormzscores = HBzscores[,-1]
+HBrowadjz = length(HBNormzscores[1,])
+for (i in 1:length(HBNormzscores)) {
+  for (j in 1:length(HBNormzscores[,1])) {
+  HBNormzscores[j, i] = HBzscores[j, i+1]-(sum(HBzscores[j,])/HBrowadjz)
+  }
+}
+HBNormzscores = data.frame(HBNormzscores)
+rownames(HBNormzscores) = do.call(paste, c(MaddenHBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(HBNormzscores) = colnames(HBzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+HBover = HBzscores[,1]
+
+HBfit <- lm(HBover ~ HBzscores[,2] + HBzscores[,3] + HBzscores[,4] + HBzscores[,5] + HBzscores[,6] + HBzscores[,7] + HBzscores[,8] + HBzscores[,9] + HBzscores[,10] + HBzscores[,11] + HBzscores[,12] + HBzscores[,13] + HBzscores[,14] + HBzscores[,15] + HBzscores[,16] + HBzscores[,17] + HBzscores[,18] + HBzscores[,19] + HBzscores[,20] + HBzscores[,21] + HBzscores[,22], data = HBzscores)
+summary(HBfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+HBReduced = HBzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 14, 15, 16, 17, 18, 19, 22)]
+HBreducedfit <- lm(HBover ~ HBReduced[,2] + HBReduced[,3] + HBReduced[,4] + HBReduced[,5] + HBReduced[,6] + HBReduced[,7] + HBReduced[,8] + HBReduced[,9] + HBReduced[,10] + HBReduced[,11] + HBReduced[,12] + HBReduced[,13] + HBReduced[,14] + HBReduced[,15], data = HBReduced)
+summary(HBreducedfit)
+
+# This normalizes the reduced criteria
+
+HBNormReduced = HBNormzscores[,c(1, 2, 3, 4, 5, 6, 7, 13, 14, 15, 16, 17, 18, 21)]
+HBNormReducedtemp = HBNormReduced
+HBrowadjreduced = length(HBNormReduced[1,])
+for (i in 1:length(HBNormReduced)) {
+  for (j in 1:length(HBNormzscores[,1])) {
+  HBNormReduced[j, i] = HBNormReducedtemp[j, i]-(sum(HBNormReducedtemp[j,])/HBrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+HBreducedcovar = cov(HBReduced[,-1])
+
+HBcovar = cov(HBOriginal[,-1])
+
+set.seed(1)
+HBreducedcriteriaclusters = kmeans(HBreducedcovar, 3)
+set.seed(1)
+HBcriteriaclusters = kmeans(HBcovar, 5)
+clusplot(HBreducedcovar, HBreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(HBcovar, HBcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+HBPassCatchingGroupFullReg = c(20:22)
+HBPowerRunningGroupFullReg = c(14, 17)
+HBAwarenessGroupFullReg = c(4, 6, 8, 9, 13)
+HBSpeedRunningGroupFullReg = c(2, 3, 5, 10, 11, 12, 16, 18)
+HBShiftinessGroupFullReg = c(15, 19)
+
+HBPassCatchingGroupWeightsFullReg = c(0, 1.084, 3.745)
+HBPowerRunningGroupWeightsFullReg = c(33.72, 7.405)
+HBAwarenessGroupWeightsFullReg = c(5.199, 41.47, 20.41, 0.4197, 0)
+HBSpeedRunningGroupWeightsFullReg = c(11.12, 4.818, 12.51, 0, 0, 0, 20.69, 6.711)
+HBShiftinessGroupWeightsFullReg = c(26.05, 8.637)
+
+HBOVRFullReg = c()
+HBPassCatchingScoresFullReg = c()
+HBPowerRunningScoresFullReg = c()
+HBAwarenessScoresFullReg = c()
+HBSpeedRunningScoresFullReg = c()
+HBShiftinessScoresFullReg = c()
+
+HBClusterFullReg = matrix(0, nrow = length(HBOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(HBzscores[,1])) {
+  HBOVRFullReg = append(HBOVRFullReg, HBzscores[i, 1])
+  HBPassCatchingScoresFullReg = append(HBPassCatchingScoresFullReg, sum(HBzscores[i, HBPassCatchingGroupFullReg]*HBPassCatchingGroupWeightsFullReg)/sum(HBPassCatchingGroupWeightsFullReg))
+  HBPowerRunningScoresFullReg = append(HBPowerRunningScoresFullReg, sum(HBzscores[i, HBPowerRunningGroupFullReg]*HBPowerRunningGroupWeightsFullReg)/sum(HBPowerRunningGroupWeightsFullReg))
+  HBAwarenessScoresFullReg = append(HBAwarenessScoresFullReg, sum(HBzscores[i, HBAwarenessGroupFullReg]*HBAwarenessGroupWeightsFullReg)/sum(HBAwarenessGroupWeightsFullReg))
+  HBSpeedRunningScoresFullReg = append(HBSpeedRunningScoresFullReg, sum(HBzscores[i, HBSpeedRunningGroupFullReg]*HBSpeedRunningGroupWeightsFullReg)/sum(HBSpeedRunningGroupWeightsFullReg))
+  HBShiftinessScoresFullReg = append(HBShiftinessScoresFullReg, sum(HBzscores[i, HBShiftinessGroupFullReg]*HBShiftinessGroupWeightsFullReg)/sum(HBShiftinessGroupWeightsFullReg))
+  HBClusterFullReg[i, 1] = HBOVRFullReg[i]
+  HBClusterFullReg[i, 2] = HBPassCatchingScoresFullReg[i]
+  HBClusterFullReg[i, 3] = HBPowerRunningScoresFullReg[i]
+  HBClusterFullReg[i, 4] = HBAwarenessScoresFullReg[i]
+  HBClusterFullReg[i, 5] = HBSpeedRunningScoresFullReg[i]
+  HBClusterFullReg[i, 6] = HBShiftinessScoresFullReg[i]
+}
+HBClusterFullReg = data.frame(HBClusterFullReg)
+rownames(HBClusterFullReg) = do.call(paste, c(MaddenHBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(HBClusterFullReg) = c("Overall", "Pass Catching", "Power Running", "Awareness", "Speed Running", "Shiftiness")
+
+HBClusterFullRegNoOverall = HBClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+HBPassCatchingGroupFullNorm = HBPassCatchingGroupFullReg-1
+HBPowerRunningGroupFullNorm = HBPowerRunningGroupFullReg-1
+HBAwarenessGroupFullNorm = HBAwarenessGroupFullReg-1
+HBSpeedRunningGroupFullNorm = HBSpeedRunningGroupFullReg-1
+HBShiftinessGroupFullNorm = HBShiftinessGroupFullReg-1
+
+HBPassCatchingGroupWeightsFullNorm = c(0, 1.084, 3.745)
+HBPowerRunningGroupWeightsFullNorm = c(33.72, 7.405)
+HBAwarenessGroupWeightsFullNorm = c(5.199, 41.47, 20.41, 0.4197, 0)
+HBSpeedRunningGroupWeightsFullNorm = c(11.12, 4.818, 12.51, 0, 0, 0, 20.69, 6.711)
+HBShiftinessGroupWeightsFullNorm = c(26.05, 8.637)
+
+HBPassCatchingScoresFullNorm = c()
+HBPowerRunningScoresFullNorm = c()
+HBAwarenessScoresFullNorm = c()
+HBSpeedRunningScoresFullNorm = c()
+HBShiftinessScoresFullNorm = c()
+
+HBClusterFullNorm = matrix(0, nrow = length(HBOriginal[,1]), ncol = 5)
+HBClusterFullNormtemp = HBClusterFullNorm
+
+
+for (i in 1: length(HBNormzscores[,1])) {
+  HBPassCatchingScoresFullNorm = append(HBPassCatchingScoresFullNorm, sum(HBNormzscores[i, HBPassCatchingGroupFullNorm]*HBPassCatchingGroupWeightsFullNorm)/sum(HBPassCatchingGroupWeightsFullNorm))
+  HBPowerRunningScoresFullNorm = append(HBPowerRunningScoresFullNorm, sum(HBNormzscores[i, HBPowerRunningGroupFullNorm]*HBPowerRunningGroupWeightsFullNorm)/sum(HBPowerRunningGroupWeightsFullNorm))
+  HBAwarenessScoresFullNorm = append(HBAwarenessScoresFullNorm, sum(HBNormzscores[i, HBAwarenessGroupFullNorm]*HBAwarenessGroupWeightsFullNorm)/sum(HBAwarenessGroupWeightsFullNorm))
+  HBSpeedRunningScoresFullNorm = append(HBSpeedRunningScoresFullNorm, sum(HBNormzscores[i, HBSpeedRunningGroupFullNorm]*HBSpeedRunningGroupWeightsFullNorm)/sum(HBSpeedRunningGroupWeightsFullNorm))
+  HBShiftinessScoresFullNorm = append(HBShiftinessScoresFullNorm, sum(HBNormzscores[i, HBShiftinessGroupFullNorm]*HBShiftinessGroupWeightsFullNorm)/sum(HBShiftinessGroupWeightsFullNorm))
+  HBClusterFullNormtemp[i, 1] = HBPassCatchingScoresFullNorm[i]
+  HBClusterFullNormtemp[i, 2] = HBPowerRunningScoresFullNorm[i]
+  HBClusterFullNormtemp[i, 3] = HBAwarenessScoresFullNorm[i]
+  HBClusterFullNormtemp[i, 4] = HBSpeedRunningScoresFullNorm[i]
+  HBClusterFullNormtemp[i, 5] = HBShiftinessScoresFullNorm[i]
+}
+
+HBClusterFullNormtemp = data.frame(HBClusterFullNormtemp)
+
+HBrowadjclusterFullNorm = length(HBClusterFullNorm[1,])
+for (i in 1:length(HBClusterFullNormtemp)) {
+  for (j in 1:length(HBClusterFullNormtemp[,1])) {
+  HBClusterFullNorm[j, i] = HBClusterFullNormtemp[j, i]-(sum(HBClusterFullNormtemp[j,])/HBrowadjclusterFullNorm)
+  }
+}
+
+HBClusterFullNorm = data.frame(HBClusterFullNorm)
+rownames(HBClusterFullNorm) = do.call(paste, c(MaddenHBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(HBClusterFullNorm) = c("Pass Catching", "Power Running", "Awareness", "Speed Running", "Shiftiness")
+
+# This does the above for the reduced metafeatures (3)
+
+HBSpeedRunningGroupReducedReg = c(2, 3, 5, 10, 14)
+HBAwarenessAndReceivingGroupReducedReg = c(6, 7, 11, 13, 15)
+HBPowerRunningGroupReducedReg = c(4, 8, 9, 12)
+HBSpeedRunningGroupWeightsReducedReg = c(11.25, 4.941, 11.98, 26.16, 8.773)
+HBAwarenessAndReceivingGroupWeightsReducedReg = c(41.24, 4.510, 20.41, 6.543, 3.868)
+HBPowerRunningGroupWeightsReducedReg = c(5.117, 20.51, 33.78, 7.580)
+
+HBOVRReducedReg = c()
+HBSpeedRunningScoresReducedReg = c()
+HBAwarenessAndReceivingScoresReducedReg = c()
+HBPowerRunningScoresReducedReg = c()
+
+HBClusterReducedReg = matrix(0, nrow = length(HBOriginal[,1]), ncol = 4)
+
+for (i in 1: length(HBReduced[,1])) {
+  HBOVRReducedReg = append(HBOVRReducedReg, HBReduced[i, 1])
+  HBSpeedRunningScoresReducedReg = append(HBSpeedRunningScoresReducedReg, sum(HBReduced[i, HBSpeedRunningGroupReducedReg]*HBSpeedRunningGroupWeightsReducedReg)/sum(HBSpeedRunningGroupWeightsReducedReg))
+  HBAwarenessAndReceivingScoresReducedReg = append(HBAwarenessAndReceivingScoresReducedReg, sum(HBReduced[i, HBAwarenessAndReceivingGroupReducedReg]*HBAwarenessAndReceivingGroupWeightsReducedReg)/sum(HBAwarenessAndReceivingGroupWeightsReducedReg))
+  HBPowerRunningScoresReducedReg = append(HBPowerRunningScoresReducedReg, sum(HBReduced[i, HBPowerRunningGroupReducedReg]*HBPowerRunningGroupWeightsReducedReg)/sum(HBPowerRunningGroupWeightsReducedReg))
+  HBClusterReducedReg[i, 1] = HBOVRReducedReg[i]
+  HBClusterReducedReg[i, 2] = HBSpeedRunningScoresReducedReg[i]
+  HBClusterReducedReg[i, 3] = HBAwarenessAndReceivingScoresReducedReg[i]
+  HBClusterReducedReg[i, 4] = HBPowerRunningScoresReducedReg[i]
+}
+HBClusterReducedReg = data.frame(HBClusterReducedReg)
+rownames(HBClusterReducedReg) = do.call(paste, c(MaddenHBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(HBClusterReducedReg) = c("Overall", "Speed Running", "Awareness And Receiving", "Power Running")
+
+HBClusterReducedRegNoOverall = HBClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+HBSpeedRunningGroupReducedNorm = HBSpeedRunningGroupReducedReg - 1
+HBAwarenessAndReceivingGroupReducedNorm = HBAwarenessAndReceivingGroupReducedReg - 1
+HBPowerRunningGroupReducedNorm = HBPowerRunningGroupReducedReg - 1
+
+HBSpeedRunningGroupWeightsReducedNorm = c(11.25, 4.941, 11.98, 26.16, 8.773)
+HBAwarenessAndReceivingGroupWeightsReducedNorm = c(41.24, 4.510, 20.41, 6.543, 3.868)
+HBPowerRunningGroupWeightsReducedNorm = c(5.117, 20.51, 33.78, 7.580)
+
+HBSpeedRunningScoresReducedNorm = c()
+HBAwarenessAndReceivingScoresReducedNorm = c()
+HBPowerRunningScoresReducedNorm = c()
+
+HBClusterReducedNorm = matrix(0, nrow = length(HBNormReduced[,1]), ncol = 3)
+HBClusterReducedNormtemp = HBClusterReducedNorm
+for (i in 1: length(HBNormReduced[,1])) {
+  HBSpeedRunningScoresReducedNorm = append(HBSpeedRunningScoresReducedNorm, sum(HBNormReduced[i, HBSpeedRunningGroupReducedNorm]*HBSpeedRunningGroupWeightsReducedNorm)/sum(HBSpeedRunningGroupWeightsReducedNorm))
+  HBAwarenessAndReceivingScoresReducedNorm = append(HBAwarenessAndReceivingScoresReducedNorm, sum(HBNormReduced[i, HBAwarenessAndReceivingGroupReducedNorm]*HBAwarenessAndReceivingGroupWeightsReducedNorm)/sum(HBAwarenessAndReceivingGroupWeightsReducedNorm))
+  HBPowerRunningScoresReducedNorm = append(HBPowerRunningScoresReducedNorm, sum(HBNormReduced[i, HBPowerRunningGroupReducedNorm]*HBPowerRunningGroupWeightsReducedNorm)/sum(HBPowerRunningGroupWeightsReducedNorm))
+  HBClusterReducedNormtemp[i, 1] = HBSpeedRunningScoresReducedNorm[i]
+  HBClusterReducedNormtemp[i, 2] = HBAwarenessAndReceivingScoresReducedNorm[i]
+  HBClusterReducedNormtemp[i, 3] = HBPowerRunningScoresReducedNorm[i]
+}
+
+HBClusterReducedNormtemp = data.frame(HBClusterReducedNormtemp)
+
+HBrowadjclusterReducedNorm = length(HBClusterReducedNorm[1,])
+for (i in 1:length(HBClusterReducedNormtemp)) {
+  for (j in 1:length(HBClusterReducedNormtemp[,1])) {
+  HBClusterReducedNorm[j, i] = HBClusterReducedNormtemp[j, i]-(sum(HBClusterReducedNormtemp[j,])/HBrowadjclusterReducedNorm)
+  }
+}
+
+HBClusterReducedNorm = data.frame(HBClusterReducedNorm, row.names = do.call(paste, c(MaddenHBs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(HBClusterReducedNorm) = c("Speed Running ", "Awareness And Receiving", "Power Running")
+
+# This clusters the players 
+
+HBnclusters = 5
+
+set.seed(1)
+HBkz = kmeans(HBzscores, HBnclusters)
+set.seed(1)
+HBNormkz = kmeans(HBNormzscores, HBnclusters)
+set.seed(1)
+HBkreduced = kmeans(HBReduced, HBnclusters)
+set.seed(1)
+HBNormkreduced = kmeans(HBNormReduced, HBnclusters)
+
+set.seed(1)
+HBkclusterReducedReg = kmeans(HBClusterReducedReg, HBnclusters)
+set.seed(1)
+HBkclusterReducedNorm = kmeans(HBClusterReducedNorm, HBnclusters)
+set.seed(1)
+HBkclusterFullReg = kmeans(HBClusterFullReg, HBnclusters)
+set.seed(1)
+HBkclusterFullNorm = kmeans(HBClusterFullNorm, HBnclusters)
+
+
+clusplot(HBzscores, HBkz$cluster, lines=0, labels=2, cex=0.75)
+HBkz$centers
+clusplot(HBNormzscores, HBNormkz$cluster, lines=0, labels=2, cex=0.75)
+HBNormkz$centers
+clusplot(HBReduced, HBkreduced$cluster, lines=0, labels=2, cex=0.75)
+HBkreduced$centers
+clusplot(HBNormReduced, HBNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+HBNormkreduced$centers
+
+clusplot(HBClusterReducedReg, HBkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+HBkclusterReducedReg$centers
+clusplot(HBClusterReducedNorm, HBkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+HBkclusterReducedNorm$centers
+clusplot(HBClusterFullReg, HBkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+HBkclusterFullReg$centers
+clusplot(HBClusterFullNorm, HBkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+HBkclusterFullNorm$centers
+
+## Notes: Keep 2, 3, 5, 6, 8, 9, 10, 11, 21, 22
+
+## so we have the clusters - i think we have a baseline weight based on correlation that we then adjust based on each cluster based on the thing with norms.
+
+HBClusterReducedNorm
+HBClusterFullNorm
+HBkclusterReducedNorm
+HBkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+HBreducedmetafit <- lm(HBClusterReducedReg[,1] ~ HBClusterReducedReg[,2] + HBClusterReducedReg[,3] + HBClusterReducedReg[,4], data = HBClusterReducedReg)
+summary(HBreducedmetafit)
+HBunreducedmetafit <- lm(HBClusterFullReg[,1] ~ HBClusterFullReg[,2] + HBClusterFullReg[,3] + HBClusterFullReg[,4] + HBClusterFullReg[,5] + HBClusterFullReg[,6], data = HBClusterFullReg)
+summary(HBunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+HBstandardreducedweights = c(63.11, 76.57, 66.99)
+HBstandardreducedweights = HBstandardreducedweights/sum(HBstandardreducedweights)
+
+HBstandardunreducedweights = c(7.371, 40.89, 67.02, 55.64, 35.09)
+HBstandardunreducedweights = HBstandardunreducedweights/sum(HBstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+HBclusterreducedweights = normalizealldataframe(pnorm(HBkclusterReducedNorm$centers))
+HBclusterunreducedweights = normalizealldataframe(pnorm(HBkclusterFullNorm$centers))
+
+HBadjustedreducedweights = HBclusterreducedweights
+HBadjustedunreducedweights = HBclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  HBadjustedreducedweights[i,] = normalizetolength(HBstandardreducedweights+HBclusterreducedweights[i,])
+  HBadjustedunreducedweights[i,] = normalizetolength(HBstandardunreducedweights+HBclusterunreducedweights[i,])
+}
+
+HBTotalScoresReduced = HBClusterReducedRegNoOverall
+HBTotalScoresUnreduced = HBClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(HBOriginal[,1])) {
+  for (j in 1:5) {
+    HBTotalScoresReduced[i, j] = 100*pnorm(sum(HBClusterReducedRegNoOverall[i,]*HBadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(HBOriginal[,1])) {
+  for (j in 1:5) {
+    HBTotalScoresUnreduced[i, j] = 100*pnorm(sum(HBClusterFullRegNoOverall[i,]*HBadjustedunreducedweights[j,]))
+  }
+}
+
+HBkclusterFullNorm$centers
+HBkclusterReducedNorm$centers
+
+colnames(HBTotalScoresUnreduced) = c("Pure Speed Back", "Backfield Receiver", "Balanced HB", "Goal Line Back", "Power Running Back")
+colnames(HBTotalScoresReduced) = c("Balanced HB", "Backfield Receiver", "Pure Speed Back", "Power Running Back", "Goal Line Back")
+
+HBTotalScoresReduced
+HBTotalScoresUnreduced
+
+HBTotalScoresReducedwithOVR = HBTotalScoresReduced
+HBTotalScoresUnreducedwithOVR = HBTotalScoresUnreduced
+
+HBTotalScoresReducedwithOVR[,6] = HBOriginal[,1]
+HBTotalScoresUnreducedwithOVR[,6] = HBOriginal[,1]
+
+```

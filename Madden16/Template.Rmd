@@ -1,0 +1,62 @@
+---
+title: "Step_Template"
+output: html_document
+---
+
+
+Here Are The Steps
+1. Read in players, select attributes for the position
+Variables: (Position will be represented by P)
+MaddenP
+PAttributes
+POriginal
+2. Find z-scores, normalize so that all players sum to zero
+Variables:
+Pmeans
+Psds
+Pzscores
+Prowadjz
+PNormzscores
+3. Run regression against Overall rating, find statistically significant criteria, run regression again on reduced criteria, normalize reduced criteria
+Variables:
+Pover
+Pfit
+PReduced
+Preducedfit (Pfit2)
+Prowadjreduced
+PNormReduced
+4. Run k-means clustering on the covariance matrices for overall and reduced criteria
+Variables:
+Pcovar
+Preducedcovar
+Pcriteriaclusters
+Preducedcriteriaclusters
+5. Name the feature clusters and assign weights to them from the regressions. There will be four, for the square of unreduced/reduced and normalized/unnormalized
+Variables:
+PGroupDescriptionFullReg, PGroupDescriptionFullNorm, PGroupDescriptionReducedReg, PGroupDescriptionReducedNorm
+Same thing with Group Description Plus Weights, also Plus Scores
+PClusterFullReg, PClusterFullNorm, PClusterReducedReg, PClusterReducedNorm
+PClusterNoOverall, PClusterReducedNoOverall
+6. Cluster the players based on the metafeatures.
+Variables:
+PkmeansFullReg
+PkmeansFullNorm
+PkmeansReducedReg
+PkmeansReducedNorm
+7. Regress metafeature scores against Overall again, get standard and cluster weights and combine them
+Variables:
+Preducedmetafit
+Punreducedmetafit
+Pstandardreducedweights
+Pstandardunreducedweights
+Pclusterreducedweights
+Pclusterunreducedweights
+Padjustedreducedweights
+Padjustedunreducedweights
+8. Multiply scores by weights to achieve Total Scores for players on archetype clusters
+Variables:
+PTotalScoresReduced
+PTotalScoresUnreduced
+PTotalScoresReducedWithOVR
+PTotalScoresUnreducedWithOVR
+

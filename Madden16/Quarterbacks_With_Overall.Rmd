@@ -1,0 +1,419 @@
+---
+title: "Quarterback_With_Overall"
+output: html_document
+---
+
+
+
+This first thing describes:
+* Run multiple regression 
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the QB attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenQBs = MaddenAllPlayers[which(MaddenAllPlayers$Position == "QB"),]
+QBAttributes = c(6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 25, 26, 27, 28, 29, 30, 31, 32, 33, 48, 49)
+QBOriginal = MaddenQBs[QBAttributes]
+rownames(QBOriginal) = do.call(paste, c(MaddenQBs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+QBmeans = c()
+QBsds = c()
+QBzscores = matrix(0, nrow = length(QBOriginal[,1]), ncol = length(QBOriginal))
+for (i in 1:length(QBOriginal)) {
+  QBmeans = append(QBmeans, mean(QBOriginal[,i]))
+  QBsds = append(QBsds, sd(QBOriginal[,i])*sqrt((length(QBOriginal[,i])-1)/(length(QBOriginal[,i]))))
+  for (j in 1:length(QBOriginal[,i])) {
+    QBzscores[j,i] = (QBOriginal[j,i]-QBmeans[i])/QBsds[i]
+  }
+}
+QBzscores = data.frame(QBzscores)
+rownames(QBzscores) = do.call(paste, c(MaddenQBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(QBzscores) = colnames(QBOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+QBNormzscores = QBzscores[,-1]
+QBrowadjz = length(QBNormzscores[1,])
+for (i in 1:length(QBNormzscores)) {
+  for (j in 1:length(QBNormzscores[,1])) {
+  QBNormzscores[j, i] = QBzscores[j, i+1]-(sum(QBzscores[j,])/QBrowadjz)
+  }
+}
+QBNormzscores = data.frame(QBNormzscores)
+rownames(QBNormzscores) = do.call(paste, c(MaddenQBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(QBNormzscores) = colnames(QBzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+QBover = QBzscores[,1]
+
+QBfit <- lm(QBover ~ QBzscores[,2] + QBzscores[,3] + QBzscores[,4] + QBzscores[,5] + QBzscores[,6] + QBzscores[,7] + QBzscores[,8] + QBzscores[,9] + QBzscores[,10] + QBzscores[,11] + QBzscores[,12] + QBzscores[,13] + QBzscores[,14] + QBzscores[,15] + QBzscores[,16] + QBzscores[,17] + QBzscores[,18] + QBzscores[,19] + QBzscores[,20] + QBzscores[,21] + QBzscores[,22], data = QBzscores)
+summary(QBfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+QBReduced = QBzscores[,c(1, 2, 3, 5, 6, 8, 9, 10, 11, 21, 22)]
+QBreducedfit <- lm(QBover ~ QBReduced[,2] + QBReduced[,3] + QBReduced[,4] + QBReduced[,5] + QBReduced[,6] + QBReduced[,7] + QBReduced[,8] + QBReduced[,9] + QBReduced[,10] + QBReduced[,11], data = QBReduced)
+summary(QBreducedfit)
+
+# This normalizes the reduced criteria
+
+QBNormReduced = QBNormzscores[,c(1, 2, 4, 5, 7, 8, 9, 10, 20, 21)]
+QBNormReducedtemp = QBNormReduced
+QBrowadjreduced = length(QBNormReduced[1,])
+for (i in 1:length(QBNormReduced)) {
+  for (j in 1:length(QBNormzscores[,1])) {
+  QBNormReduced[j, i] = QBNormReducedtemp[j, i]-(sum(QBNormReducedtemp[j,])/QBrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+QBreducedcovar = cov(QBReduced[,-1])
+
+QBcovar = cov(QBOriginal[,-1])
+
+set.seed(1)
+QBreducedcriteriaclusters = kmeans(QBreducedcovar, 3)
+set.seed(1)
+QBcriteriaclusters = kmeans(QBcovar, 5)
+clusplot(QBreducedcovar, QBreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(QBcovar, QBcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Running QB (Speed, Acceleration, Carrying, Throw On The Run)
+# Cluster 2: Awareness (Awareness, Play Action)
+# Cluster 3: Throwing (Strength, Throw Power, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Injury, Stamina, Toughness)
+# Cluster 4: Fast Run (Elusiveness, Ball Carrier Vision, Spin Move, Juke Move)
+# Cluster 5: Power Run (Agility, Trucking, Stiff Arm)
+
+# Reduced
+# Cluster 1: Scrambling (Speed, Acceleration, Agility)
+# Cluster 2: Accuracy (Awareness, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Play Action)
+# Cluster 3: Deep Ball (Throw Power, Throw On The Run)
+
+QBRunningQBGroupFullReg = c(2, 3, 7, 22)
+QBAwarenessGroupFullReg = c(6, 21)
+QBThrowingGroupFullReg = c(4, 8, 9, 10, 11, 12, 13, 14)
+QBFastRunGroupFullReg = c(16, 17, 19, 20)
+QBPowerRunGroupFullReg = c(5, 15, 18)
+
+QBRunningQBGroupWeightsFullReg = c(6.38, 1.886, 0, 2.254)
+QBAwarenessGroupWeightsFullReg = c(52.3, 16.27)
+QBThrowingGroupWeightsFullReg = c(0.357, 19.59, 17.77, 19.06, 10.46, 0.237, 0, 0.414)
+QBFastRunGroupWeightsFullReg = c(0.059, 0, 0, 1.327)
+QBPowerRunGroupWeightsFullReg = c(4.234, 0.26, 0)
+
+QBOVRFullReg = c()
+QBRunningQBScoresFullReg = c()
+QBAwarenessScoresFullReg = c()
+QBThrowingScoresFullReg = c()
+QBFastRunScoresFullReg = c()
+QBPowerRunScoresFullReg = c()
+
+QBClusterFullReg = matrix(0, nrow = length(QBOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(QBzscores[,1])) {
+  QBOVRFullReg = append(QBOVRFullReg, QBzscores[i, 1])
+  QBRunningQBScoresFullReg = append(QBRunningQBScoresFullReg, sum(QBzscores[i, QBRunningQBGroupFullReg]*QBRunningQBGroupWeightsFullReg)/sum(QBRunningQBGroupWeightsFullReg))
+  QBAwarenessScoresFullReg = append(QBAwarenessScoresFullReg, sum(QBzscores[i, QBAwarenessGroupFullReg]*QBAwarenessGroupWeightsFullReg)/sum(QBAwarenessGroupWeightsFullReg))
+  QBThrowingScoresFullReg = append(QBThrowingScoresFullReg, sum(QBzscores[i, QBThrowingGroupFullReg]*QBThrowingGroupWeightsFullReg)/sum(QBThrowingGroupWeightsFullReg))
+  QBFastRunScoresFullReg = append(QBFastRunScoresFullReg, sum(QBzscores[i, QBFastRunGroupFullReg]*QBFastRunGroupWeightsFullReg)/sum(QBFastRunGroupWeightsFullReg))
+  QBPowerRunScoresFullReg = append(QBPowerRunScoresFullReg, sum(QBzscores[i, QBPowerRunGroupFullReg]*QBPowerRunGroupWeightsFullReg)/sum(QBPowerRunGroupWeightsFullReg))
+  QBClusterFullReg[i, 1] = QBOVRFullReg[i]
+  QBClusterFullReg[i, 2] = QBRunningQBScoresFullReg[i]
+  QBClusterFullReg[i, 3] = QBAwarenessScoresFullReg[i]
+  QBClusterFullReg[i, 4] = QBThrowingScoresFullReg[i]
+  QBClusterFullReg[i, 5] = QBFastRunScoresFullReg[i]
+  QBClusterFullReg[i, 6] = QBPowerRunScoresFullReg[i]
+}
+QBClusterFullReg = data.frame(QBClusterFullReg)
+rownames(QBClusterFullReg) = do.call(paste, c(MaddenQBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(QBClusterFullReg) = c("Overall", "Running QB", "Awareness", "Throwing", "Fast Run", "Power Run")
+
+QBClusterFullRegNoOverall = QBClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+QBRunningQBGroupFullNorm = QBRunningQBGroupFullReg-1
+QBAwarenessGroupFullNorm = QBAwarenessGroupFullReg-1
+QBThrowingGroupFullNorm = QBThrowingGroupFullReg-1
+QBFastRunGroupFullNorm = QBFastRunGroupFullReg-1
+QBPowerRunGroupFullNorm = QBPowerRunGroupFullReg-1
+
+QBRunningQBGroupWeightsFullNorm = c(6.38, 1.886, 0, 2.254)
+QBAwarenessGroupWeightsFullNorm = c(52.3, 16.27)
+QBThrowingGroupWeightsFullNorm = c(0.357, 19.59, 17.77, 19.06, 10.46, 0.237, 0, 0.414)
+QBFastRunGroupWeightsFullNorm = c(0.059, 0, 0, 1.327)
+QBPowerRunGroupWeightsFullNorm = c(4.234, 0.26, 0)
+
+QBRunningQBScoresFullNorm = c()
+QBAwarenessScoresFullNorm = c()
+QBThrowingScoresFullNorm = c()
+QBFastRunScoresFullNorm = c()
+QBPowerRunScoresFullNorm = c()
+
+QBClusterFullNorm = matrix(0, nrow = length(QBOriginal[,1]), ncol = 5)
+QBClusterFullNormtemp = QBClusterFullNorm
+
+
+for (i in 1: length(QBNormzscores[,1])) {
+  QBRunningQBScoresFullNorm = append(QBRunningQBScoresFullNorm, sum(QBNormzscores[i, QBRunningQBGroupFullNorm]*QBRunningQBGroupWeightsFullNorm)/sum(QBRunningQBGroupWeightsFullNorm))
+  QBAwarenessScoresFullNorm = append(QBAwarenessScoresFullNorm, sum(QBNormzscores[i, QBAwarenessGroupFullNorm]*QBAwarenessGroupWeightsFullNorm)/sum(QBAwarenessGroupWeightsFullNorm))
+  QBThrowingScoresFullNorm = append(QBThrowingScoresFullNorm, sum(QBNormzscores[i, QBThrowingGroupFullNorm]*QBThrowingGroupWeightsFullNorm)/sum(QBThrowingGroupWeightsFullNorm))
+  QBFastRunScoresFullNorm = append(QBFastRunScoresFullNorm, sum(QBNormzscores[i, QBFastRunGroupFullNorm]*QBFastRunGroupWeightsFullNorm)/sum(QBFastRunGroupWeightsFullNorm))
+  QBPowerRunScoresFullNorm = append(QBPowerRunScoresFullNorm, sum(QBNormzscores[i, QBPowerRunGroupFullNorm]*QBPowerRunGroupWeightsFullNorm)/sum(QBPowerRunGroupWeightsFullNorm))
+  QBClusterFullNormtemp[i, 1] = QBRunningQBScoresFullNorm[i]
+  QBClusterFullNormtemp[i, 2] = QBAwarenessScoresFullNorm[i]
+  QBClusterFullNormtemp[i, 3] = QBThrowingScoresFullNorm[i]
+  QBClusterFullNormtemp[i, 4] = QBFastRunScoresFullNorm[i]
+  QBClusterFullNormtemp[i, 5] = QBPowerRunScoresFullNorm[i]
+}
+
+QBClusterFullNormtemp = data.frame(QBClusterFullNormtemp)
+
+QBrowadjclusterFullNorm = length(QBClusterFullNorm[1,])
+for (i in 1:length(QBClusterFullNormtemp)) {
+  for (j in 1:length(QBClusterFullNormtemp[,1])) {
+  QBClusterFullNorm[j, i] = QBClusterFullNormtemp[j, i]-(sum(QBClusterFullNormtemp[j,])/QBrowadjclusterFullNorm)
+  }
+}
+
+QBClusterFullNorm = data.frame(QBClusterFullNorm)
+rownames(QBClusterFullNorm) = do.call(paste, c(MaddenQBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(QBClusterFullNorm) = c("Running QB", "Awareness", "Throwing", "Fast Run", "Power Run")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Scrambling (Speed, Acceleration, Agility)
+# Cluster 2: Accuracy (Awareness, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Play Action)
+# Cluster 3: Deep Ball (Throw Power, Throw On The Run)
+
+QBScramblingGroupReducedReg = c(2, 3, 4) 
+QBAccuracyGroupReducedReg = c(5, 7, 8, 9, 10)
+QBDeepBallGroupReducedReg = c(6, 11)
+QBScramblingGroupWeightsReducedReg = c(6.198, 1.802, 4.667)
+QBAccuracyGroupWeightsReducedReg = c(52.59, 17.57, 19.25, 10.40, 16.16)
+QBDeepBallGroupWeightsReducedReg = c(19.89, 21.82)
+
+QBOVRReducedReg = c()
+QBScramblingScoresReducedReg = c()
+QBAccuracyScoresReducedReg = c()
+QBDeepBallScoresReducedReg = c()
+
+QBClusterReducedReg = matrix(0, nrow = length(QBOriginal[,1]), ncol = 4)
+
+for (i in 1: length(QBReduced[,1])) {
+  QBOVRReducedReg = append(QBOVRReducedReg, QBReduced[i, 1])
+  QBScramblingScoresReducedReg = append(QBScramblingScoresReducedReg, sum(QBReduced[i, QBScramblingGroupReducedReg]*QBScramblingGroupWeightsReducedReg)/sum(QBScramblingGroupWeightsReducedReg))
+  QBAccuracyScoresReducedReg = append(QBAccuracyScoresReducedReg, sum(QBReduced[i, QBAccuracyGroupReducedReg]*QBAccuracyGroupWeightsReducedReg)/sum(QBAccuracyGroupWeightsReducedReg))
+  QBDeepBallScoresReducedReg = append(QBDeepBallScoresReducedReg, sum(QBReduced[i, QBDeepBallGroupReducedReg]*QBDeepBallGroupWeightsReducedReg)/sum(QBDeepBallGroupWeightsReducedReg))
+  QBClusterReducedReg[i, 1] = QBOVRReducedReg[i]
+  QBClusterReducedReg[i, 2] = QBScramblingScoresReducedReg[i]
+  QBClusterReducedReg[i, 3] = QBAccuracyScoresReducedReg[i]
+  QBClusterReducedReg[i, 4] = QBDeepBallScoresReducedReg[i]
+}
+QBClusterReducedReg = data.frame(QBClusterReducedReg)
+rownames(QBClusterReducedReg) = do.call(paste, c(MaddenQBs[c("First.Name", "Last.Name")], sep = " "))
+colnames(QBClusterReducedReg) = c("Overall", "Scrambling", "Accuracy", "DeepBall")
+
+QBClusterReducedRegNoOverall = QBClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+QBScramblingGroupReducedNorm = QBScramblingGroupReducedReg-1
+QBAccuracyGroupReducedNorm = QBAccuracyGroupReducedReg-1
+QBDeepBallGroupReducedNorm = QBDeepBallGroupReducedReg-1
+QBScramblingGroupWeightsReducedNorm = c(6.198, 1.802, 4.667)
+QBAccuracyGroupWeightsReducedNorm = c(52.59, 17.57, 19.25, 10.4, 16.16)
+QBDeepBallGroupWeightsReducedNorm = c(19.89, 21.82)
+
+QBScramblingScoresReducedNorm = c()
+QBAccuracyScoresReducedNorm = c()
+QBDeepBallScoresReducedNorm = c()
+
+
+QBClusterReducedNorm = matrix(0, nrow = length(QBNormReduced[,1]), ncol = 3)
+QBClusterReducedNormtemp = QBClusterReducedNorm
+for (i in 1: length(QBNormReduced[,1])) {
+  QBScramblingScoresReducedNorm = append(QBScramblingScoresReducedNorm, sum(QBNormReduced[i, QBScramblingGroupReducedNorm]*QBScramblingGroupWeightsReducedNorm)/sum(QBScramblingGroupWeightsReducedNorm))
+  QBAccuracyScoresReducedNorm = append(QBAccuracyScoresReducedNorm, sum(QBNormReduced[i, QBAccuracyGroupReducedNorm]*QBAccuracyGroupWeightsReducedNorm)/sum(QBAccuracyGroupWeightsReducedNorm))
+  QBDeepBallScoresReducedNorm = append(QBDeepBallScoresReducedNorm, sum(QBNormReduced[i, QBDeepBallGroupReducedNorm]*QBDeepBallGroupWeightsReducedNorm)/sum(QBDeepBallGroupWeightsReducedNorm))
+  QBClusterReducedNormtemp[i, 1] = QBScramblingScoresReducedNorm[i]
+  QBClusterReducedNormtemp[i, 2] = QBAccuracyScoresReducedNorm[i]
+  QBClusterReducedNormtemp[i, 3] = QBDeepBallScoresReducedNorm[i]
+}
+
+QBClusterReducedNormtemp = data.frame(QBClusterReducedNormtemp)
+
+QBrowadjclusterReducedNorm = length(QBClusterReducedNorm[1,])
+for (i in 1:length(QBClusterReducedNormtemp)) {
+  for (j in 1:length(QBClusterReducedNormtemp[,1])) {
+  QBClusterReducedNorm[j, i] = QBClusterReducedNormtemp[j, i]-(sum(QBClusterReducedNormtemp[j,])/QBrowadjclusterReducedNorm)
+  }
+}
+
+QBClusterReducedNorm = data.frame(QBClusterReducedNorm, row.names = do.call(paste, c(MaddenQBs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(QBClusterReducedNorm) = c("Scrambling", "Accuracy", "DeepBall")
+
+# This clusters the players 
+
+QBnclusters = 5
+
+set.seed(1)
+QBkz = kmeans(QBzscores, QBnclusters)
+set.seed(1)
+QBNormkz = kmeans(QBNormzscores, QBnclusters)
+set.seed(1)
+QBkreduced = kmeans(QBReduced, QBnclusters)
+set.seed(1)
+QBNormkreduced = kmeans(QBNormReduced, QBnclusters)
+
+set.seed(1)
+QBkclusterReducedReg = kmeans(QBClusterReducedReg, QBnclusters)
+set.seed(1)
+QBkclusterReducedNorm = kmeans(QBClusterReducedNorm, QBnclusters)
+set.seed(1)
+QBkclusterFullReg = kmeans(QBClusterFullReg, QBnclusters)
+set.seed(1)
+QBkclusterFullNorm = kmeans(QBClusterFullNorm, QBnclusters)
+
+
+clusplot(QBzscores, QBkz$cluster, lines=0, labels=2, cex=0.75)
+QBkz$centers
+clusplot(QBNormzscores, QBNormkz$cluster, lines=0, labels=2, cex=0.75)
+QBNormkz$centers
+clusplot(QBReduced, QBkreduced$cluster, lines=0, labels=2, cex=0.75)
+QBkreduced$centers
+clusplot(QBNormReduced, QBNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+QBNormkreduced$centers
+
+clusplot(QBClusterReducedReg, QBkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+QBkclusterReducedReg$centers
+clusplot(QBClusterReducedNorm, QBkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+QBkclusterReducedNorm$centers
+clusplot(QBClusterFullReg, QBkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+QBkclusterFullReg$centers
+clusplot(QBClusterFullNorm, QBkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+QBkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 SCRAMBLER
+# Cluster 2 MOBILE DEEP THROWER
+# Cluster 3 WEST COAST
+# Cluster 4 POCKET PASSER
+# Cluster 5 BIG ARM
+
+# Full Norm
+# Cluster 1 SCRAMBLER
+# Cluster 2 LOW AWARENESS BALANCED
+# Cluster 3 WEST COAST
+# Cluster 4 POCKET PASSER
+# Cluster 5 HIGH AWARENESS BALANCED
+
+```
+Notes: Keep 2, 3, 5, 6, 8, 9, 10, 11, 21, 22
+
+so we have the clusters - i think we have a baseline weight based on correlation that we then adjust based on each cluster based on the thing with norms.
+
+```{r, echo=FALSE}
+QBClusterReducedNorm
+QBClusterFullNorm
+QBkclusterReducedNorm
+QBkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+QBreducedmetafit <- lm(QBClusterReducedReg[,1] ~ QBClusterReducedReg[,2] + QBClusterReducedReg[,3] + QBClusterReducedReg[,4], data = QBClusterReducedReg)
+summary(QBreducedmetafit)
+QBunreducedmetafit <- lm(QBClusterFullReg[,1] ~ QBClusterFullReg[,2] + QBClusterFullReg[,3] + QBClusterFullReg[,4] + QBClusterFullReg[,5] + QBClusterFullReg[,6], data = QBClusterFullReg)
+summary(QBunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+QBstandardreducedweights = c(0.6804, 11.16, 2.526)
+QBstandardreducedweights = QBstandardreducedweights/sum(QBstandardreducedweights)
+
+QBstandardunreducedweights = c(10.43, 68.67, 67.72, 0.4261, 4.257)
+QBstandardunreducedweights = QBstandardunreducedweights/sum(QBstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+QBclusterreducedweights = normalizealldataframe(pnorm(QBkclusterReducedNorm$centers))
+QBclusterunreducedweights = normalizealldataframe(pnorm(QBkclusterFullNorm$centers))
+
+QBadjustedreducedweights = QBclusterreducedweights
+QBadjustedunreducedweights = QBclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  QBadjustedreducedweights[i,] = normalizetolength(QBstandardreducedweights+QBclusterreducedweights[i,])
+  QBadjustedunreducedweights[i,] = normalizetolength(QBstandardunreducedweights+QBclusterunreducedweights[i,])
+}
+
+QBTotalScoresReduced = QBClusterReducedRegNoOverall
+QBTotalScoresUnreduced = QBClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(QBOriginal[,1])) {
+  for (j in 1:5) {
+    QBTotalScoresReduced[i, j] = 100*pnorm(sum(QBClusterReducedRegNoOverall[i,]*QBadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(QBOriginal[,1])) {
+  for (j in 1:5) {
+    QBTotalScoresUnreduced[i, j] = 100*pnorm(sum(QBClusterFullRegNoOverall[i,]*QBadjustedunreducedweights[j,]))
+  }
+}
+
+QBkclusterFullNorm$centers
+QBkclusterReducedNorm$centers
+
+colnames(QBTotalScoresReduced) = c("Scrambler", "Mobile Deep Thrower", "West Coast", "Pocket Passer", "Big Arm")
+colnames(QBTotalScoresUnreduced) = c("Scrambler", "Low Awareness Balanced", "West Coast", "Pocket Passer", "High Awareness Balanced")
+
+QBTotalScoresReduced
+QBTotalScoresUnreduced
+
+QBTotalScoresReducedwithOVR = QBTotalScoresReduced
+QBTotalScoresUnreducedwithOVR = QBTotalScoresUnreduced
+
+QBTotalScoresReducedwithOVR[,6] = QBOriginal[,1]
+QBTotalScoresUnreducedwithOVR[,6] = QBOriginal[,1]
+
+```

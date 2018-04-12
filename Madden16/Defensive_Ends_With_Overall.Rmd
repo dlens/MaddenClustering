@@ -1,0 +1,460 @@
+---
+title: "Defensive_Ends_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the DE attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenDEs = subset(MaddenAllPlayers, Position == "LE" | Position == "RE")
+DEAttributes = c(6:11, 22, 25:27, 35:39, 45)
+DEOriginal = MaddenDEs[DEAttributes]
+rownames(DEOriginal) = do.call(paste, c(MaddenDEs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+DEmeans = c()
+DEsds = c()
+DEzscores = matrix(0, nrow = length(DEOriginal[,1]), ncol = length(DEOriginal))
+for (i in 1:length(DEOriginal)) {
+  DEmeans = append(DEmeans, mean(DEOriginal[,i]))
+  DEsds = append(DEsds, sd(DEOriginal[,i])*sqrt((length(DEOriginal[,i])-1)/(length(DEOriginal[,i]))))
+  for (j in 1:length(DEOriginal[,i])) {
+    DEzscores[j,i] = (DEOriginal[j,i]-DEmeans[i])/DEsds[i]
+  }
+}
+DEzscores = data.frame(DEzscores)
+rownames(DEzscores) = do.call(paste, c(MaddenDEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DEzscores) = colnames(DEOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+DENormzscores = DEzscores[,-1]
+DErowadjz = length(DENormzscores[1,])
+for (i in 1:length(DENormzscores)) {
+  for (j in 1:length(DENormzscores[,1])) {
+  DENormzscores[j, i] = DEzscores[j, i+1]-(sum(DEzscores[j,])/DErowadjz)
+  }
+}
+DENormzscores = data.frame(DENormzscores)
+rownames(DENormzscores) = do.call(paste, c(MaddenDEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DENormzscores) = colnames(DEzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+DEover = DEzscores[,1]
+
+DEfit <- lm(DEover ~ DEzscores[,2] + DEzscores[,3] + DEzscores[,4] + DEzscores[,5] + DEzscores[,6] + DEzscores[,7] + DEzscores[,8] + DEzscores[,9] + DEzscores[,10] + DEzscores[,11] + DEzscores[,12] + DEzscores[,13] + DEzscores[,14] + DEzscores[,15] + DEzscores[,16], data = DEzscores)
+summary(DEfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+DEReduced = DEzscores[,c(1, 2, 3, 4, 5, 6, 7, 9, 11, 12, 13, 14, 15, 16)]
+DEreducedfit <- lm(DEover ~ DEReduced[,2] + DEReduced[,3] + DEReduced[,4] + DEReduced[,5] + DEReduced[,6] + DEReduced[,7] + DEReduced[,8] + DEReduced[,9] + DEReduced[,10] + DEReduced[,11] + DEReduced[,12] + DEReduced[,13] + DEReduced[,14], data = DEReduced)
+summary(DEreducedfit)
+
+# This normalizes the reduced criteria
+
+DENormReduced = DENormzscores[,c(1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15)]
+DENormReducedtemp = DENormReduced
+DErowadjreduced = length(DENormReduced[1,])
+for (i in 1:length(DENormReduced)) {
+  for (j in 1:length(DENormzscores[,1])) {
+  DENormReduced[j, i] = DENormReducedtemp[j, i]-(sum(DENormReducedtemp[j,])/DErowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+DEreducedcovar = cov(DEReduced[,-1])
+
+DEcovar = cov(DEOriginal[,-1])
+
+set.seed(1)
+DEreducedcriteriaclusters = kmeans(DEreducedcovar, 3)
+set.seed(1)
+DEcriteriaclusters = kmeans(DEcovar, 5)
+clusplot(DEreducedcovar, DEreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(DEcovar, DEcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Speed (Speed, Acceleration, Agility)
+# Cluster 2: Awareness (Awareness, Play Recognition)
+# Cluster 3: Open Field (Injury, Stamina, Toughness, Pursuit, Hit Power)
+# Cluster 4: Finesse Pass Rushing (Finesse Moves)
+# Cluster 5: Power Pass Rushing (Strength, Tackle, Power Moves, Block Shedding)
+
+# Reduced
+# Cluster 1: Speed Pass Rushing (Speed, Acceleration, Agility, Finesse Moves)
+# Cluster 2: Power Pass Rushing (Strength, Awareness, Tackling, Power Moves, Block Shedding, Play Recognition)
+# Cluster 3: Open Field (Stamina, Pursuit, Hit Power)
+
+DESpeedGroupFullReg = c(2, 3, 5)
+DEAwarenessGroupFullReg = c(6, 15)
+DEOpenFieldGroupFullReg = c(8, 9, 10, 14, 16)
+DEFinessePassRushingGroupFullReg = c(12)
+DEPowerPassRushingGroupFullReg = c(4, 7, 11, 13)
+
+summary(DEfit)
+
+DEcriteriaclusters
+
+DESpeedGroupWeightsFullReg = c(93.6, 116.2, 100.6)
+DEAwarenessGroupWeightsFullReg = c(454.0, 208.6)
+DEOpenFieldGroupWeightsFullReg = c(3.430, 0, 1.779, 76.19, 24.28)
+DEFinessePassRushingGroupWeightsFullReg = c(363.8)
+DEPowerPassRushingGroupWeightsFullReg = c(71.7, 136.4, 233.4, 176.2)
+
+DESpeedGroupWeightsFullReg[]/sum(DESpeedGroupWeightsFullReg)
+DEAwarenessGroupWeightsFullReg[]/sum(DEAwarenessGroupWeightsFullReg)
+DEOpenFieldGroupWeightsFullReg[]/sum(DEOpenFieldGroupWeightsFullReg)
+DEFinessePassRushingGroupWeightsFullReg[]/sum(DEFinessePassRushingGroupWeightsFullReg)
+DEPowerPassRushingGroupWeightsFullReg[]/sum(DEPowerPassRushingGroupWeightsFullReg) 
+
+DEOVRFullReg = c()
+DESpeedScoresFullReg = c()
+DEAwarenessScoresFullReg = c()
+DEOpenFieldScoresFullReg = c()
+DEFinessePassRushingScoresFullReg = c()
+DEPowerPassRushingScoresFullReg = c()
+
+DEClusterFullReg = matrix(0, nrow = length(DEOriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(DEzscores[,1])) {
+  DEOVRFullReg = append(DEOVRFullReg, DEzscores[i, 1])
+  DESpeedScoresFullReg = append(DESpeedScoresFullReg, sum(DEzscores[i, DESpeedGroupFullReg]*DESpeedGroupWeightsFullReg)/sum(DESpeedGroupWeightsFullReg))
+  DEAwarenessScoresFullReg = append(DEAwarenessScoresFullReg, sum(DEzscores[i, DEAwarenessGroupFullReg]*DEAwarenessGroupWeightsFullReg)/sum(DEAwarenessGroupWeightsFullReg))
+  DEOpenFieldScoresFullReg = append(DEOpenFieldScoresFullReg, sum(DEzscores[i, DEOpenFieldGroupFullReg]*DEOpenFieldGroupWeightsFullReg)/sum(DEOpenFieldGroupWeightsFullReg))
+  DEFinessePassRushingScoresFullReg = append(DEFinessePassRushingScoresFullReg, sum(DEzscores[i, DEFinessePassRushingGroupFullReg]*DEFinessePassRushingGroupWeightsFullReg)/sum(DEFinessePassRushingGroupWeightsFullReg))
+  DEPowerPassRushingScoresFullReg = append(DEPowerPassRushingScoresFullReg, sum(DEzscores[i, DEPowerPassRushingGroupFullReg]*DEPowerPassRushingGroupWeightsFullReg)/sum(DEPowerPassRushingGroupWeightsFullReg))
+  DEClusterFullReg[i, 1] = DEOVRFullReg[i]
+  DEClusterFullReg[i, 2] = DESpeedScoresFullReg[i]
+  DEClusterFullReg[i, 3] = DEAwarenessScoresFullReg[i]
+  DEClusterFullReg[i, 4] = DEOpenFieldScoresFullReg[i]
+  DEClusterFullReg[i, 5] = DEFinessePassRushingScoresFullReg[i]
+  DEClusterFullReg[i, 6] = DEPowerPassRushingScoresFullReg[i]
+}
+DEClusterFullReg = data.frame(DEClusterFullReg)
+rownames(DEClusterFullReg) = do.call(paste, c(MaddenDEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DEClusterFullReg) = c("Overall", "Speed", "Awareness", "Open Field", "Finesse Pash Rushing", "Power Pass Rushing")
+
+DEClusterFullRegNoOverall = DEClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+DESpeedGroupFullNorm = DESpeedGroupFullReg-1
+DEAwarenessGroupFullNorm = DEAwarenessGroupFullReg-1
+DEOpenFieldGroupFullNorm = DEOpenFieldGroupFullReg-1
+DEFinessePassRushingGroupFullNorm = DEFinessePassRushingGroupFullReg-1
+DEPowerPassRushingGroupFullNorm = DEPowerPassRushingGroupFullReg-1
+
+DESpeedGroupWeightsFullNorm = DESpeedGroupWeightsFullReg
+DEAwarenessGroupWeightsFullNorm = DEAwarenessGroupWeightsFullReg
+DEOpenFieldGroupWeightsFullNorm = DEOpenFieldGroupWeightsFullReg
+DEFinessePassRushingGroupWeightsFullNorm = DEFinessePassRushingGroupWeightsFullReg
+DEPowerPassRushingGroupWeightsFullNorm = DEPowerPassRushingGroupWeightsFullReg
+
+DESpeedScoresFullNorm = c()
+DEAwarenessScoresFullNorm = c()
+DEOpenFieldScoresFullNorm = c()
+DEFinessePassRushingScoresFullNorm = c()
+DEPowerPassRushingScoresFullNorm = c()
+
+DEClusterFullNorm = matrix(0, nrow = length(DEOriginal[,1]), ncol = 5)
+DEClusterFullNormtemp = DEClusterFullNorm
+
+
+for (i in 1: length(DENormzscores[,1])) {
+  DESpeedScoresFullNorm = append(DESpeedScoresFullNorm, sum(DENormzscores[i, DESpeedGroupFullNorm]*DESpeedGroupWeightsFullNorm)/sum(DESpeedGroupWeightsFullNorm))
+  DEAwarenessScoresFullNorm = append(DEAwarenessScoresFullNorm, sum(DENormzscores[i, DEAwarenessGroupFullNorm]*DEAwarenessGroupWeightsFullNorm)/sum(DEAwarenessGroupWeightsFullNorm))
+  DEOpenFieldScoresFullNorm = append(DEOpenFieldScoresFullNorm, sum(DENormzscores[i, DEOpenFieldGroupFullNorm]*DEOpenFieldGroupWeightsFullNorm)/sum(DEOpenFieldGroupWeightsFullNorm))
+  DEFinessePassRushingScoresFullNorm = append(DEFinessePassRushingScoresFullNorm, sum(DENormzscores[i, DEFinessePassRushingGroupFullNorm]*DEFinessePassRushingGroupWeightsFullNorm)/sum(DEFinessePassRushingGroupWeightsFullNorm))
+  DEPowerPassRushingScoresFullNorm = append(DEPowerPassRushingScoresFullNorm, sum(DENormzscores[i, DEPowerPassRushingGroupFullNorm]*DEPowerPassRushingGroupWeightsFullNorm)/sum(DEPowerPassRushingGroupWeightsFullNorm))
+  DEClusterFullNormtemp[i, 1] = DESpeedScoresFullNorm[i]
+  DEClusterFullNormtemp[i, 2] = DEAwarenessScoresFullNorm[i]
+  DEClusterFullNormtemp[i, 3] = DEAwarenessScoresFullNorm[i]
+  DEClusterFullNormtemp[i, 4] = DEFinessePassRushingScoresFullNorm[i]
+  DEClusterFullNormtemp[i, 5] = DEPowerPassRushingScoresFullNorm[i]
+}
+
+DEClusterFullNormtemp = data.frame(DEClusterFullNormtemp)
+
+DErowadjclusterFullNorm = length(DEClusterFullNorm[1,])
+for (i in 1:length(DEClusterFullNormtemp)) {
+  for (j in 1:length(DEClusterFullNormtemp[,1])) {
+  DEClusterFullNorm[j, i] = DEClusterFullNormtemp[j, i]-(sum(DEClusterFullNormtemp[j,])/DErowadjclusterFullNorm)
+  }
+}
+
+DEClusterFullNorm = data.frame(DEClusterFullNorm)
+rownames(DEClusterFullNorm) = do.call(paste, c(MaddenDEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DEClusterFullNorm) = c("Speed", "Awareness", "Open Field", "Finesse Pass Rushing", "Power Pass Rushing")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Speed Pass Rushing (Speed, Acceleration, Agility, Finesse Moves)
+# Cluster 2: Power Pass Rushing (Strength, Awareness, Tackling, Power Moves, Block Shedding, Play Recognition)
+# Cluster 3: Open Field (Stamina, Pursuit, Hit Power)
+
+DESpeedPassRushingGroupReducedReg = c(2, 3, 5, 10)
+DEPowerPassRushingGroupReducedReg = c(4, 6, 7, 9, 11, 13)
+DEOpenFieldGroupReducedReg = c(8, 12, 14)
+
+summary(DEreducedfit)
+
+DEreducedcriteriaclusters
+
+DESpeedPassRushingGroupWeightsReducedReg = c(92.95, 117.1, 100.4, 363.0)
+DEPowerPassRushingGroupWeightsReducedReg = c(72.04, 455.4, 136.0, 233.3, 175.5, 208.3)
+DEOpenFieldGroupWeightsReducedReg = c(0, 77.07, 24.51)
+
+DESpeedPassRushingGroupWeightsReducedReg[]/sum(DESpeedPassRushingGroupWeightsReducedReg)
+DEPowerPassRushingGroupWeightsReducedReg[]/sum(DEPowerPassRushingGroupWeightsReducedReg)
+DEOpenFieldGroupWeightsReducedReg[]/sum(DEOpenFieldGroupWeightsReducedReg)
+
+DEOVRReducedReg = c()
+DESpeedPassRushingScoresReducedReg = c()
+DEPowerPassRushingScoresReducedReg = c()
+DEOpenFieldScoresReducedReg = c()
+
+DEClusterReducedReg = matrix(0, nrow = length(DEOriginal[,1]), ncol = 4)
+
+for (i in 1: length(DEReduced[,1])) {
+  DEOVRReducedReg = append(DEOVRReducedReg, DEReduced[i, 1])
+  DESpeedPassRushingScoresReducedReg = append(DESpeedPassRushingScoresReducedReg, sum(DEReduced[i, DESpeedPassRushingGroupReducedReg]*DESpeedPassRushingGroupWeightsReducedReg)/sum(DESpeedPassRushingGroupWeightsReducedReg))
+  DEPowerPassRushingScoresReducedReg = append(DEPowerPassRushingScoresReducedReg, sum(DEReduced[i, DEPowerPassRushingGroupReducedReg]*DEPowerPassRushingGroupWeightsReducedReg)/sum(DEPowerPassRushingGroupWeightsReducedReg))
+  DEOpenFieldScoresReducedReg = append(DEOpenFieldScoresReducedReg, sum(DEReduced[i, DEOpenFieldGroupReducedReg]*DEOpenFieldGroupWeightsReducedReg)/sum(DEOpenFieldGroupWeightsReducedReg))
+  DEClusterReducedReg[i, 1] = DEOVRReducedReg[i]
+  DEClusterReducedReg[i, 2] = DESpeedPassRushingScoresReducedReg[i]
+  DEClusterReducedReg[i, 3] = DEPowerPassRushingScoresReducedReg[i]
+  DEClusterReducedReg[i, 4] = DEOpenFieldScoresReducedReg[i]
+}
+DEClusterReducedReg = data.frame(DEClusterReducedReg)
+rownames(DEClusterReducedReg) = do.call(paste, c(MaddenDEs[c("First.Name", "Last.Name")], sep = " "))
+colnames(DEClusterReducedReg) = c("Overall", "Speed Pass Rushing", "Power Pass Rushing", "Open Field")
+
+
+DEClusterReducedRegNoOverall = DEClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+DESpeedPassRushingGroupReducedNorm = DESpeedPassRushingGroupReducedReg - 1
+DEPowerPassRushingGroupReducedNorm = DEPowerPassRushingGroupReducedReg - 1
+DEOpenFieldGroupReducedNorm = DEOpenFieldGroupReducedReg - 1
+
+DESpeedPassRushingGroupWeightsReducedNorm = DESpeedPassRushingGroupWeightsReducedReg
+DEPowerPassRushingGroupWeightsReducedNorm = DEPowerPassRushingGroupWeightsReducedReg
+DEOpenFieldGroupWeightsReducedNorm = DEOpenFieldGroupWeightsReducedReg
+
+DESpeedPassRushingScoresReducedNorm = c()
+DEPowerPassRushingScoresReducedNorm = c()
+DEOpenFieldScoresReducedNorm = c()
+
+
+DEClusterReducedNorm = matrix(0, nrow = length(DENormReduced[,1]), ncol = 3)
+DEClusterReducedNormtemp = DEClusterReducedNorm
+for (i in 1: length(DENormReduced[,1])) {
+  DESpeedPassRushingScoresReducedNorm = append(DESpeedPassRushingScoresReducedNorm, sum(DENormReduced[i, DESpeedPassRushingGroupReducedNorm]*DESpeedPassRushingGroupWeightsReducedNorm)/sum(DESpeedPassRushingGroupWeightsReducedNorm))
+  DEPowerPassRushingScoresReducedNorm = append(DEPowerPassRushingScoresReducedNorm, sum(DENormReduced[i, DEPowerPassRushingGroupReducedNorm]*DEPowerPassRushingGroupWeightsReducedNorm)/sum(DEPowerPassRushingGroupWeightsReducedNorm))
+  DEOpenFieldScoresReducedNorm = append(DEOpenFieldScoresReducedNorm, sum(DENormReduced[i, DEOpenFieldGroupReducedNorm]*DEOpenFieldGroupWeightsReducedNorm)/sum(DEOpenFieldGroupWeightsReducedNorm))
+  DEClusterReducedNormtemp[i, 1] = DESpeedPassRushingScoresReducedNorm[i]
+  DEClusterReducedNormtemp[i, 2] = DEPowerPassRushingScoresReducedNorm[i]
+  DEClusterReducedNormtemp[i, 3] = DEOpenFieldScoresReducedNorm[i]
+}
+
+DEClusterReducedNormtemp = data.frame(DEClusterReducedNormtemp)
+
+DErowadjclusterReducedNorm = length(DEClusterReducedNorm[1,])
+for (i in 1:length(DEClusterReducedNormtemp)) {
+  for (j in 1:length(DEClusterReducedNormtemp[,1])) {
+  DEClusterReducedNorm[j, i] = DEClusterReducedNormtemp[j, i]-(sum(DEClusterReducedNormtemp[j,])/DErowadjclusterReducedNorm)
+  }
+}
+
+
+DEClusterReducedNorm = data.frame(DEClusterReducedNorm, row.names = do.call(paste, c(MaddenDEs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(DEClusterReducedNorm) = c("Speed Pass Rushing", "Power Pass Rushing", "Open Field")
+
+# This clusters the players 
+
+DEnclusters = 5
+
+set.seed(1)
+DEkz = kmeans(DEzscores, DEnclusters)
+set.seed(1)
+DENormkz = kmeans(DENormzscores, DEnclusters)
+set.seed(1)
+DEkreduced = kmeans(DEReduced, DEnclusters)
+set.seed(1)
+DENormkreduced = kmeans(DENormReduced, DEnclusters)
+
+set.seed(1)
+DEkclusterReducedReg = kmeans(DEClusterReducedReg, DEnclusters)
+set.seed(1)
+DEkclusterReducedNorm = kmeans(DEClusterReducedNorm, DEnclusters)
+set.seed(1)
+DEkclusterFullReg = kmeans(DEClusterFullReg, DEnclusters)
+set.seed(1)
+DEkclusterFullNorm = kmeans(DEClusterFullNorm, DEnclusters)
+
+
+clusplot(DEzscores, DEkz$cluster, lines=0, labels=2, cex=0.75)
+DEkz$centers
+clusplot(DENormzscores, DENormkz$cluster, lines=0, labels=2, cex=0.75)
+DENormkz$centers
+clusplot(DEReduced, DEkreduced$cluster, lines=0, labels=2, cex=0.75)
+DEkreduced$centers
+clusplot(DENormReduced, DENormkreduced$cluster, lines=0, labels=2, cex=0.75)
+DENormkreduced$centers
+
+clusplot(DEClusterReducedReg, DEkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+DEkclusterReducedReg$centers
+clusplot(DEClusterReducedNorm, DEkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+DEkclusterReducedNorm$centers
+clusplot(DEClusterFullReg, DEkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+DEkclusterFullReg$centers
+clusplot(DEClusterFullNorm, DEkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+DEkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 SPEED RUSHER (High Speed, low Power, low Open Field)
+# Cluster 2 POWER RUSHER (Medium Speed, High Power, Low open field)
+# Cluster 3 OPEN FIELD END (High Speed, very low power, High open field)
+# Cluster 4 POWER HITTER (Low speed, High power, high open field)
+# Cluster 5 BALANCED DE
+
+# Full Norm
+# Cluster 1 POWER SPEED HYBRID
+# Cluster 2 FINESSE RUSHER
+# Cluster 3 SPEED RUSHER
+# Cluster 4 POWER RUSHER
+# Cluster 5 BALANCED DE
+
+DEClusterReducedNorm
+DEClusterFullNorm
+DEkclusterReducedNorm
+DEkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+DEreducedmetafit <- lm(DEClusterReducedReg[,1] ~ DEClusterReducedReg[,2] + DEClusterReducedReg[,3] + DEClusterReducedReg[,4], data = DEClusterReducedReg)
+summary(DEreducedmetafit)
+DEunreducedmetafit <- lm(DEClusterFullReg[,1] ~ DEClusterFullReg[,2] + DEClusterFullReg[,3] + DEClusterFullReg[,4] + DEClusterFullReg[,5] + DEClusterFullReg[,6], data = DEClusterFullReg)
+summary(DEunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(DEreducedmetafit)
+
+DEstandardreducedweights = c(662.9, 1268, 96.02)
+DEstandardreducedweights = DEstandardreducedweights/sum(DEstandardreducedweights)
+
+summary(DEunreducedmetafit)
+
+DEstandardunreducedweights = c(300.9, 654.9, 100.6, 361.4, 610.7)
+DEstandardunreducedweights = DEstandardunreducedweights/sum(DEstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+DEclusterreducedweights = normalizealldataframe(pnorm(DEkclusterReducedNorm$centers))
+DEclusterunreducedweights = normalizealldataframe(pnorm(DEkclusterFullNorm$centers))
+
+DEadjustedreducedweights = DEclusterreducedweights
+DEadjustedunreducedweights = DEclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  DEadjustedreducedweights[i,] = normalizetolength(DEstandardreducedweights+DEclusterreducedweights[i,])
+  DEadjustedunreducedweights[i,] = normalizetolength(DEstandardunreducedweights+DEclusterunreducedweights[i,])
+}
+
+DETotalScoresReduced = DEClusterReducedRegNoOverall
+DETotalScoresUnreduced = DEClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(DEOriginal[,1])) {
+  for (j in 1:5) {
+    DETotalScoresReduced[i, j] = 100*pnorm(sum(DEClusterReducedRegNoOverall[i,]*DEadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(DEOriginal[,1])) {
+  for (j in 1:5) {
+    DETotalScoresUnreduced[i, j] = 100*pnorm(sum(DEClusterFullRegNoOverall[i,]*DEadjustedunreducedweights[j,]))
+  }
+}
+
+DEkclusterFullNorm$centers
+DEkclusterReducedNorm$centers
+
+# Reduced Norm
+# Cluster 1 SPEED RUSHER (High Speed, low Power, low Open Field)
+# Cluster 2 POWER RUSHER (Medium Speed, High Power, Low open field)
+# Cluster 3 OPEN FIELD END (High Speed, very low power, High open field)
+# Cluster 4 POWER HITTER (Low speed, High power, high open field)
+# Cluster 5 BALANCED DE
+
+# Full Norm
+# Cluster 1 POWER SPEED HYBRID
+# Cluster 2 FINESSE RUSHER
+# Cluster 3 SPEED RUSHER
+# Cluster 4 POWER RUSHER
+# Cluster 5 BALANCED DE
+
+
+colnames(DETotalScoresReduced) = c("Speed Rusher", "Power Rusher", "Open Field End", "Power Hitter", "Balanced DE")
+colnames(DETotalScoresUnreduced) = c("Power Speed Hybrid", "Finesse Rusher", "Speed Rusher", "Power Rusher", "Balanced DE")
+
+DEkclusterFullNorm$centers
+DETotalScoresUnreduced
+DEkclusterReducedNorm$centers
+DETotalScoresReduced
+
+
+DETotalScoresReducedwithOVR = DETotalScoresReduced
+DETotalScoresUnreducedwithOVR = DETotalScoresUnreduced
+
+DETotalScoresReducedwithOVR[,6] = DEOriginal[,1]
+DETotalScoresUnreducedwithOVR[,6] = DEOriginal[,1]
+
+DETotalScoresReducedwithOVR
+DETotalScoresUnreducedwithOVR
+
+DEstandardunreducedweights
+DEadjustedunreducedweights
+DEstandardreducedweights
+DEadjustedreducedweights
+
+```

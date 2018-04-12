@@ -1,0 +1,432 @@
+---
+title: "Offensive Guards"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the OG attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenOGs = subset(MaddenAllPlayers, Position == "LG" | Position == "RG")
+OGAttributes = c(6:11, 20:21, 25:27, 34)
+OGOriginal = MaddenOGs[OGAttributes]
+rownames(OGOriginal) = do.call(paste, c(MaddenOGs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+OGmeans = c()
+OGsds = c()
+OGzscores = matrix(0, nrow = length(OGOriginal[,1]), ncol = length(OGOriginal))
+for (i in 1:length(OGOriginal)) {
+  OGmeans = append(OGmeans, mean(OGOriginal[,i]))
+  OGsds = append(OGsds, sd(OGOriginal[,i])*sqrt((length(OGOriginal[,i])-1)/(length(OGOriginal[,i]))))
+  for (j in 1:length(OGOriginal[,i])) {
+    OGzscores[j,i] = (OGOriginal[j,i]-OGmeans[i])/OGsds[i]
+  }
+}
+OGzscores = data.frame(OGzscores)
+rownames(OGzscores) = do.call(paste, c(MaddenOGs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OGzscores) = colnames(OGOriginal)
+
+# This normalizes Z scores so that all players sum to 0
+
+OGNormzscores = OGzscores[,-1]
+OGrowadjz = length(OGNormzscores[1,])
+for (i in 1:length(OGNormzscores)) {
+  for (j in 1:length(OGNormzscores[,1])) {
+  OGNormzscores[j, i] = OGzscores[j, i+1]-(sum(OGzscores[j,])/OGrowadjz)
+  }
+}
+OGNormzscores = data.frame(OGNormzscores)
+rownames(OGNormzscores) = do.call(paste, c(MaddenOGs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OGNormzscores) = colnames(OGzscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+OGover = OGzscores[,1]
+
+OGfit <- lm(OGover ~ OGzscores[,2] + OGzscores[,3] + OGzscores[,4] + OGzscores[,5] + OGzscores[,6] + OGzscores[,7] + OGzscores[,8] + OGzscores[,9] + OGzscores[,10] + OGzscores[,11] + OGzscores[,12], data = OGzscores)
+summary(OGfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+OGReduced = OGzscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 12)]
+OGreducedfit <- lm(OGover ~ OGReduced[,2] + OGReduced[,3] + OGReduced[,4] + OGReduced[,5] + OGReduced[,6] + OGReduced[,7] + OGReduced[,8] + OGReduced[,9], data = OGReduced)
+summary(OGreducedfit)
+
+# This normalizes the reduced criteria
+
+OGNormReduced = OGNormzscores[,c(1, 2, 3, 4, 5, 6, 7, 11)]
+OGNormReducedtemp = OGNormReduced
+OGrowadjreduced = length(OGNormReduced[1,])
+for (i in 1:length(OGNormReduced)) {
+  for (j in 1:length(OGNormzscores[,1])) {
+  OGNormReduced[j, i] = OGNormReducedtemp[j, i]-(sum(OGNormReducedtemp[j,])/OGrowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+OGreducedcovar = cov(OGReduced[,-1])
+
+OGcovar = cov(OGOriginal[,-1])
+
+set.seed(1)
+OGreducedcriteriaclusters = kmeans(OGreducedcovar, 3)
+set.seed(1)
+OGcriteriaclusters = kmeans(OGcovar, 4)
+clusplot(OGreducedcovar, OGreducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(OGcovar, OGcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+OGcriteriaclusters
+OGreducedcriteriaclusters
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Awareness (Awareness)
+# Cluster 2: Speed (Speed, Acceleration, Agility)
+# Cluster 3: Blocking (Strength, Run Block, Pass Block, Stamina, Impact Block)
+# Cluster 4: Toughness (Injury, Toughness)
+# Cluster 5: NA
+
+# Reduced
+# Cluster 1: Run Blocking (Run Block, Impact Block)
+# Cluster 2: Pass Blocking (Strength, Awareness, Pass Block)
+# Cluster 3: Speed (Speed, Acceleration, Agility)
+
+OGAwarenessGroupFullReg = c(6)
+OGSpeedGroupFullReg = c(2, 3, 5)
+OGBlockingGroupFullReg = c(4, 7, 8, 10, 12)
+OGToughnessGroupFullReg = c(9, 11)
+
+summary(OGfit)
+
+OGAwarenessGroupWeightsFullReg = c(483.1)
+OGSpeedGroupWeightsFullReg = c(25.49, 62.21, 93.98)
+OGBlockingGroupWeightsFullReg = c(130.6, 230.7, 418.1, 10.46, 128.3)
+OGToughnessGroupWeightsFullReg = c(5.685, 0)
+
+OGOVRFullReg = c()
+OGAwarenessScoresFullReg = c()
+OGSpeedScoresFullReg = c()
+OGBlockingScoresFullReg = c()
+OGToughnessScoresFullReg = c()
+
+OGClusterFullReg = matrix(0, nrow = length(OGOriginal[,1]), ncol = 5)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(OGzscores[,1])) {
+  OGOVRFullReg = append(OGOVRFullReg, OGzscores[i, 1])
+  OGAwarenessScoresFullReg = append(OGAwarenessScoresFullReg, sum(OGzscores[i, OGAwarenessGroupFullReg]*OGAwarenessGroupWeightsFullReg)/sum(OGAwarenessGroupWeightsFullReg))
+  OGSpeedScoresFullReg = append(OGSpeedScoresFullReg, sum(OGzscores[i, OGSpeedGroupFullReg]*OGSpeedGroupWeightsFullReg)/sum(OGSpeedGroupWeightsFullReg))
+  OGBlockingScoresFullReg = append(OGBlockingScoresFullReg, sum(OGzscores[i, OGBlockingGroupFullReg]*OGBlockingGroupWeightsFullReg)/sum(OGBlockingGroupWeightsFullReg))
+  OGToughnessScoresFullReg = append(OGToughnessScoresFullReg, sum(OGzscores[i, OGToughnessGroupFullReg]*OGToughnessGroupWeightsFullReg)/sum(OGToughnessGroupWeightsFullReg))
+  OGClusterFullReg[i, 1] = OGOVRFullReg[i]
+  OGClusterFullReg[i, 2] = OGAwarenessScoresFullReg[i]
+  OGClusterFullReg[i, 3] = OGSpeedScoresFullReg[i]
+  OGClusterFullReg[i, 4] = OGBlockingScoresFullReg[i]
+  OGClusterFullReg[i, 5] = OGToughnessScoresFullReg[i]
+}
+OGClusterFullReg = data.frame(OGClusterFullReg)
+rownames(OGClusterFullReg) = do.call(paste, c(MaddenOGs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OGClusterFullReg) = c("Overall", "Awareness", "Speed", "Blocking", "Toughness")
+
+OGClusterFullRegNoOverall = OGClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+OGAwarenessGroupFullNorm = OGAwarenessGroupFullReg-1
+OGSpeedGroupFullNorm = OGSpeedGroupFullReg-1
+OGBlockingGroupFullNorm = OGBlockingGroupFullReg-1
+OGToughnessGroupFullNorm = OGToughnessGroupFullReg-1
+
+OGAwarenessGroupWeightsFullNorm = OGAwarenessGroupWeightsFullReg
+OGSpeedGroupWeightsFullNorm = OGSpeedGroupWeightsFullReg
+OGBlockingGroupWeightsFullNorm = OGBlockingGroupWeightsFullReg
+OGToughnessGroupWeightsFullNorm = OGToughnessGroupWeightsFullReg
+
+OGAwarenessScoresFullNorm = c()
+OGSpeedScoresFullNorm = c()
+OGBlockingScoresFullNorm = c()
+OGToughnessScoresFullNorm = c()
+
+OGClusterFullNorm = matrix(0, nrow = length(OGOriginal[,1]), ncol = 4)
+OGClusterFullNormtemp = OGClusterFullNorm
+
+
+for (i in 1: length(OGNormzscores[,1])) {
+  OGAwarenessScoresFullNorm = append(OGAwarenessScoresFullNorm, sum(OGNormzscores[i, OGAwarenessGroupFullNorm]*OGAwarenessGroupWeightsFullNorm)/sum(OGAwarenessGroupWeightsFullNorm))
+  OGSpeedScoresFullNorm = append(OGSpeedScoresFullNorm, sum(OGNormzscores[i, OGSpeedGroupFullNorm]*OGSpeedGroupWeightsFullNorm)/sum(OGSpeedGroupWeightsFullNorm))
+  OGBlockingScoresFullNorm = append(OGBlockingScoresFullNorm, sum(OGNormzscores[i, OGBlockingGroupFullNorm]*OGBlockingGroupWeightsFullNorm)/sum(OGBlockingGroupWeightsFullNorm))
+  OGToughnessScoresFullNorm = append(OGToughnessScoresFullNorm, sum(OGNormzscores[i, OGToughnessGroupFullNorm]*OGToughnessGroupWeightsFullNorm)/sum(OGToughnessGroupWeightsFullNorm))
+  OGClusterFullNormtemp[i, 1] = OGAwarenessScoresFullNorm[i]
+  OGClusterFullNormtemp[i, 2] = OGSpeedScoresFullNorm[i]
+  OGClusterFullNormtemp[i, 3] = OGBlockingScoresFullNorm[i]
+  OGClusterFullNormtemp[i, 4] = OGToughnessScoresFullNorm[i]
+}
+
+OGClusterFullNormtemp = data.frame(OGClusterFullNormtemp)
+
+OGrowadjclusterFullNorm = length(OGClusterFullNorm[1,])
+for (i in 1:length(OGClusterFullNormtemp)) {
+  for (j in 1:length(OGClusterFullNormtemp[,1])) {
+  OGClusterFullNorm[j, i] = OGClusterFullNormtemp[j, i]-(sum(OGClusterFullNormtemp[j,])/OGrowadjclusterFullNorm)
+  }
+}
+
+OGClusterFullNorm = data.frame(OGClusterFullNorm)
+rownames(OGClusterFullNorm) = do.call(paste, c(MaddenOGs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OGClusterFullNorm) = c("Awareness", "Speed", "Blocking", "Toughness")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Run Blocking (Run Block, Impact Block)
+# Cluster 2: Pass Blocking (Strength, Awareness, Pass Block)
+# Cluster 3: Speed (Speed, Acceleration, Agility)
+
+OGreducedcriteriaclusters
+
+OGRunBlockingGroupReducedReg = c(7, 9)
+OGPassBlockingGroupReducedReg = c(4, 6, 8)
+OGSpeedGroupReducedReg = c(2, 3, 5)
+
+summary(OGreducedfit)
+
+OGRunBlockingGroupWeightsReducedReg = c(230.9, 129.1)
+OGPassBlockingGroupWeightsReducedReg = c(128.8, 483.6, 421.2)
+OGSpeedGroupWeightsReducedReg = c(24.24, 62.66, 98.02)
+
+OGOVRReducedReg = c()
+OGRunBlockingScoresReducedReg = c()
+OGPassBlockingScoresReducedReg = c()
+OGSpeedScoresReducedReg = c()
+
+OGClusterReducedReg = matrix(0, nrow = length(OGOriginal[,1]), ncol = 4)
+
+for (i in 1: length(OGReduced[,1])) {
+  OGOVRReducedReg = append(OGOVRReducedReg, OGReduced[i, 1])
+  OGRunBlockingScoresReducedReg = append(OGRunBlockingScoresReducedReg, sum(OGReduced[i, OGRunBlockingGroupReducedReg]*OGRunBlockingGroupWeightsReducedReg)/sum(OGRunBlockingGroupWeightsReducedReg))
+  OGPassBlockingScoresReducedReg = append(OGPassBlockingScoresReducedReg, sum(OGReduced[i, OGPassBlockingGroupReducedReg]*OGPassBlockingGroupWeightsReducedReg)/sum(OGPassBlockingGroupWeightsReducedReg))
+  OGSpeedScoresReducedReg = append(OGSpeedScoresReducedReg, sum(OGReduced[i, OGSpeedGroupReducedReg]*OGSpeedGroupWeightsReducedReg)/sum(OGSpeedGroupWeightsReducedReg))
+  OGClusterReducedReg[i, 1] = OGOVRReducedReg[i]
+  OGClusterReducedReg[i, 2] = OGRunBlockingScoresReducedReg[i]
+  OGClusterReducedReg[i, 3] = OGPassBlockingScoresReducedReg[i]
+  OGClusterReducedReg[i, 4] = OGSpeedScoresReducedReg[i]
+}
+OGClusterReducedReg = data.frame(OGClusterReducedReg)
+rownames(OGClusterReducedReg) = do.call(paste, c(MaddenOGs[c("First.Name", "Last.Name")], sep = " "))
+colnames(OGClusterReducedReg) = c("Overall", "Run Blocking", "Pass Blocking", "Speed")
+
+
+OGClusterReducedRegNoOverall = OGClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+OGRunBlockingGroupReducedNorm = OGRunBlockingGroupReducedReg - 1
+OGPassBlockingGroupReducedNorm = OGPassBlockingGroupReducedReg - 1
+OGSpeedGroupReducedNorm = OGSpeedGroupReducedReg - 1
+
+OGRunBlockingGroupWeightsReducedNorm = OGRunBlockingGroupWeightsReducedReg
+OGPassBlockingGroupWeightsReducedNorm = OGPassBlockingGroupWeightsReducedReg
+OGSpeedGroupWeightsReducedNorm = OGSpeedGroupWeightsReducedReg
+
+OGRunBlockingScoresReducedNorm = c()
+OGPassBlockingScoresReducedNorm = c()
+OGSpeedScoresReducedNorm = c()
+
+
+OGClusterReducedNorm = matrix(0, nrow = length(OGNormReduced[,1]), ncol = 3)
+OGClusterReducedNormtemp = OGClusterReducedNorm
+for (i in 1: length(OGNormReduced[,1])) {
+  OGRunBlockingScoresReducedNorm = append(OGRunBlockingScoresReducedNorm, sum(OGNormReduced[i, OGRunBlockingGroupReducedNorm]*OGRunBlockingGroupWeightsReducedNorm)/sum(OGRunBlockingGroupWeightsReducedNorm))
+  OGPassBlockingScoresReducedNorm = append(OGPassBlockingScoresReducedNorm, sum(OGNormReduced[i, OGPassBlockingGroupReducedNorm]*OGPassBlockingGroupWeightsReducedNorm)/sum(OGPassBlockingGroupWeightsReducedNorm))
+  OGSpeedScoresReducedNorm = append(OGSpeedScoresReducedNorm, sum(OGNormReduced[i, OGSpeedGroupReducedNorm]*OGSpeedGroupWeightsReducedNorm)/sum(OGSpeedGroupWeightsReducedNorm))
+  OGClusterReducedNormtemp[i, 1] = OGRunBlockingScoresReducedNorm[i]
+  OGClusterReducedNormtemp[i, 2] = OGPassBlockingScoresReducedNorm[i]
+  OGClusterReducedNormtemp[i, 3] = OGSpeedScoresReducedNorm[i]
+}
+
+OGClusterReducedNormtemp = data.frame(OGClusterReducedNormtemp)
+
+OGrowadjclusterReducedNorm = length(OGClusterReducedNorm[1,])
+for (i in 1:length(OGClusterReducedNormtemp)) {
+  for (j in 1:length(OGClusterReducedNormtemp[,1])) {
+  OGClusterReducedNorm[j, i] = OGClusterReducedNormtemp[j, i]-(sum(OGClusterReducedNormtemp[j,])/OGrowadjclusterReducedNorm)
+  }
+}
+
+
+OGClusterReducedNorm = data.frame(OGClusterReducedNorm, row.names = do.call(paste, c(MaddenOGs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(OGClusterReducedNorm) = c("Run Blocking", "Pass Blocking", "Speed")
+
+# This clusters the players 
+
+OGnclusters = 5
+
+set.seed(1)
+OGkz = kmeans(OGzscores, OGnclusters)
+set.seed(1)
+OGNormkz = kmeans(OGNormzscores, OGnclusters)
+set.seed(1)
+OGkreduced = kmeans(OGReduced, OGnclusters)
+set.seed(1)
+OGNormkreduced = kmeans(OGNormReduced, OGnclusters)
+
+set.seed(1)
+OGkclusterReducedReg = kmeans(OGClusterReducedReg, OGnclusters)
+set.seed(1)
+OGkclusterReducedNorm = kmeans(OGClusterReducedNorm, OGnclusters)
+set.seed(1)
+OGkclusterFullReg = kmeans(OGClusterFullReg, OGnclusters)
+set.seed(1)
+OGkclusterFullNorm = kmeans(OGClusterFullNorm, OGnclusters)
+
+
+clusplot(OGzscores, OGkz$cluster, lines=0, labels=2, cex=0.75)
+OGkz$centers
+clusplot(OGNormzscores, OGNormkz$cluster, lines=0, labels=2, cex=0.75)
+OGNormkz$centers
+clusplot(OGReduced, OGkreduced$cluster, lines=0, labels=2, cex=0.75)
+OGkreduced$centers
+clusplot(OGNormReduced, OGNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+OGNormkreduced$centers
+
+clusplot(OGClusterReducedReg, OGkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+OGkclusterReducedReg$centers
+clusplot(OGClusterReducedNorm, OGkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+OGkclusterReducedNorm$centers
+clusplot(OGClusterFullReg, OGkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+OGkclusterFullReg$centers
+clusplot(OGClusterFullNorm, OGkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+OGkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 PULLING GUARD (Great Speed)
+# Cluster 2 PASS BLOCKER
+# Cluster 3 BALANCED OG
+# Cluster 4 RUN BLOCKER
+# Cluster 5 POWER BLOCKER (slow, good run and pass blocking)
+
+# Full Norm
+# Cluster 1 PULLING GUARD (Speed and toughness, poor awareness)
+# Cluster 2 POWER BLOCKER (Good Awareness, not blocking)
+# Cluster 3 BALANCED OG
+# Cluster 4 FAST BLOCKER (great at everything but toughness)
+# Cluster 5 TOUGH BLOCKER 
+
+OGClusterReducedNorm
+OGClusterFullNorm
+OGkclusterReducedNorm
+OGkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+OGreducedmetafit <- lm(OGClusterReducedReg[,1] ~ OGClusterReducedReg[,2] + OGClusterReducedReg[,3] + OGClusterReducedReg[,4], data = OGClusterReducedReg)
+summary(OGreducedmetafit)
+OGunreducedmetafit <- lm(OGClusterFullReg[,1] ~ OGClusterFullReg[,2] + OGClusterFullReg[,3] + OGClusterFullReg[,4] + OGClusterFullReg[,5], data = OGClusterFullReg)
+summary(OGunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(OGreducedmetafit)
+
+OGstandardreducedweights = c(360.0, 1034, 184.9)
+OGstandardreducedweights = OGstandardreducedweights/sum(OGstandardreducedweights)
+
+summary(OGunreducedmetafit)
+
+OGstandardunreducedweights = c(482.9, 181.9, 917.8, 5.242)
+OGstandardunreducedweights = OGstandardunreducedweights/sum(OGstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+OGclusterreducedweights = normalizealldataframe(pnorm(OGkclusterReducedNorm$centers))
+OGclusterunreducedweights = normalizealldataframe(pnorm(OGkclusterFullNorm$centers))
+
+OGadjustedreducedweights = OGclusterreducedweights
+OGadjustedunreducedweights = OGclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  OGadjustedreducedweights[i,] = normalizetolength(OGstandardreducedweights+OGclusterreducedweights[i,])
+  OGadjustedunreducedweights[i,] = normalizetolength(OGstandardunreducedweights+OGclusterunreducedweights[i,])
+}
+
+OGTotalScoresReduced = OGClusterReducedRegNoOverall
+OGTotalScoresUnreduced = OGClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(OGOriginal[,1])) {
+  for (j in 1:5) {
+    OGTotalScoresReduced[i, j] = 100*pnorm(sum(OGClusterReducedRegNoOverall[i,]*OGadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(OGOriginal[,1])) {
+  for (j in 1:5) {
+    OGTotalScoresUnreduced[i, j] = 100*pnorm(sum(OGClusterFullRegNoOverall[i,]*OGadjustedunreducedweights[j,]))
+  }
+}
+
+OGkclusterFullNorm$centers
+OGkclusterReducedNorm$centers
+
+# Reduced Norm
+# Cluster 1 PULLING GUARD (Great Speed)
+# Cluster 2 PASS BLOCKER
+# Cluster 3 BALANCED OG
+# Cluster 4 RUN BLOCKER
+# Cluster 5 POWER BLOCKER (slow, good run and pass blocking)
+
+# Full Norm
+# Cluster 1 PULLING GUARD (Speed and toughness, poor awareness)
+# Cluster 2 POWER BLOCKER (Good Awareness, not blocking)
+# Cluster 3 BALANCED OG
+# Cluster 4 FAST BLOCKER (great at everything but toughness)
+# Cluster 5 TOUGH BLOCKER 
+
+colnames(OGTotalScoresReduced) = c("Pulling Guard", "Pass Blocker", "Balanced OG", "Run Blocker", "Power Blocker")
+colnames(OGTotalScoresUnreduced) = c("Pulling Guard", "Power Blocker", "Balanced OG", "Fast Blocker", "Tough Blocker")
+
+OGTotalScoresReduced
+OGTotalScoresUnreduced
+
+OGTotalScoresReducedwithOVR = OGTotalScoresReduced
+OGTotalScoresUnreducedwithOVR = OGTotalScoresUnreduced
+
+OGTotalScoresReducedwithOVR[,6] = OGOriginal[,1]
+OGTotalScoresUnreducedwithOVR[,6] = OGOriginal[,1]
+
+OGTotalScoresReducedwithOVR
+OGTotalScoresUnreducedwithOVR
+
+```

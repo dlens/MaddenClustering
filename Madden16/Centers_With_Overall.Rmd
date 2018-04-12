@@ -1,0 +1,458 @@
+---
+title: "Centers_With_Overall"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(rmarkdown)
+library(ggplot2)
+library(cluster)
+library(knitr)
+
+# This reads in players and selects just the TE attributes
+
+MaddenAllPlayers = read.csv("All_Player_Import.csv")
+MaddenCs = MaddenAllPlayers[which(MaddenAllPlayers$Position == "C"),]
+CAttributes = c(6:11, 20:21, 25:27, 34)
+COriginal = MaddenCs[CAttributes]
+rownames(COriginal) = do.call(paste, c(MaddenCs[c("First.Name", "Last.Name")], sep = " "))
+
+# This finds the zscores
+
+Cmeans = c()
+Csds = c()
+Czscores = matrix(0, nrow = length(COriginal[,1]), ncol = length(COriginal))
+for (i in 1:length(COriginal)) {
+  Cmeans = append(Cmeans, mean(COriginal[,i]))
+  Csds = append(Csds, sd(COriginal[,i])*sqrt((length(COriginal[,i])-1)/(length(COriginal[,i]))))
+  for (j in 1:length(COriginal[,i])) {
+    Czscores[j,i] = (COriginal[j,i]-Cmeans[i])/Csds[i]
+  }
+}
+Czscores = data.frame(Czscores)
+rownames(Czscores) = do.call(paste, c(MaddenCs[c("First.Name", "Last.Name")], sep = " "))
+colnames(Czscores) = colnames(COriginal)
+```
+
+```{r, echo=FALSE}
+# This normalizes Z scores so that all players sum to 0
+
+CNormzscores = Czscores[,-1]
+Crowadjz = length(CNormzscores[1,])
+for (i in 1:length(CNormzscores)) {
+  for (j in 1:length(CNormzscores[,1])) {
+  CNormzscores[j, i] = Czscores[j, i+1]-(sum(Czscores[j,])/Crowadjz)
+  }
+}
+CNormzscores = data.frame(CNormzscores)
+rownames(CNormzscores) = do.call(paste, c(MaddenCs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CNormzscores) = colnames(Czscores[,-1])
+
+# This runs a regression of all the columns against the OVR rating to identify the most important attributes - use the statistically significant ones 
+
+Cover = Czscores[,1]
+
+Cfit <- lm(Cover ~ Czscores[,2] + Czscores[,3] + Czscores[,4] + Czscores[,5] + Czscores[,6] + Czscores[,7] + Czscores[,8] + Czscores[,9] + Czscores[,10] + Czscores[,11] + Czscores[,12], data = Czscores)
+summary(Cfit)
+
+# This reduces to the most important criteria and runs a second regression on them
+
+CReduced = Czscores[,c(1, 2, 3, 4, 5, 6, 7, 8, 11, 12)]
+Creducedfit <- lm(Cover ~ CReduced[,2] + CReduced[,3] + CReduced[,4] + CReduced[,5] + CReduced[,6] + CReduced[,7] + CReduced[,8] + CReduced[,9] + CReduced[,10], data = CReduced)
+summary(Creducedfit)
+
+# This normalizes the reduced criteria
+
+CNormReduced = CNormzscores[,c(1, 2, 3, 4, 5, 6, 7, 10, 11)]
+CNormReducedtemp = CNormReduced
+Crowadjreduced = length(CNormReduced[1,])
+for (i in 1:length(CNormReduced)) {
+  for (j in 1:length(CNormzscores[,1])) {
+  CNormReduced[j, i] = CNormReducedtemp[j, i]-(sum(CNormReducedtemp[j,])/Crowadjreduced)
+  }
+}
+
+# This runs k-means clustering on both the Reduced and Original criteria - clusters like categories together
+
+Creducedcovar = cov(CReduced[,-1])
+
+Ccovar = cov(COriginal[,-1])
+
+set.seed(1)
+Creducedcriteriaclusters = kmeans(Creducedcovar, 3)
+set.seed(1)
+Ccriteriaclusters = kmeans(Ccovar, 5)
+clusplot(Creducedcovar, Creducedcriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+clusplot(Ccovar, Ccriteriaclusters$cluster, lines=0, labels=2, cex=0.75)
+
+Ccriteriaclusters
+Creducedcriteriaclusters
+
+# This names the clusters and assigns weights to them from the regression
+
+# Unreduced
+# Cluster 1: Pass Blocking (Pass Block, Stamina, Toughness)
+# Cluster 2: Quickness (Agility)
+# Cluster 3: Run Blocking (Awareness, Run Block, Impact Block)
+# Cluster 4: Strength (Strength)
+# Cluster 5: Speed (Speed, Acceleration, Injury)
+
+# Reduced
+# Cluster 1: Speed (Speed, Acceleration, Agility)
+# Cluster 2: Blocking (Awareness, Run Block, Pass Block, Toughness, Impact Block)
+# Cluster 3: Strength (Strength)
+
+CPassBlockingGroupFullReg = c(8, 10, 11)
+CQuicknessGroupFullReg = c(5)
+CRunBlockingGroupFullReg = c(6, 7, 12)
+CStrengthGroupFullReg = c(4)
+CSpeedGroupFullReg = c(2, 3, 9)
+
+summary(Cfit)
+
+CPassBlockingGroupWeightsFullReg = c(282.1, 3.881, 0)
+CQuicknessGroupWeightsFullReg = c(45.54)
+CRunBlockingGroupWeightsFullReg = c(445.8, 386.7, 99.97)
+CStrengthGroupWeightsFullReg = c(108.0)
+CSpeedGroupWeightsFullReg = c(31.06, 25.33, 0)
+
+COVRFullReg = c()
+CPassBlockingScoresFullReg = c()
+CQuicknessScoresFullReg = c()
+CRunBlockingScoresFullReg = c()
+CStrengthScoresFullReg = c()
+CSpeedScoresFullReg = c()
+
+CClusterFullReg = matrix(0, nrow = length(COriginal[,1]), ncol = 6)
+
+# This creates each player's scores on the metafeatures from combining weighted criteria
+
+for (i in 1: length(Czscores[,1])) {
+  COVRFullReg = append(COVRFullReg, Czscores[i, 1])
+  CPassBlockingScoresFullReg = append(CPassBlockingScoresFullReg, sum(Czscores[i, CPassBlockingGroupFullReg]*CPassBlockingGroupWeightsFullReg)/sum(CPassBlockingGroupWeightsFullReg))
+  CQuicknessScoresFullReg = append(CQuicknessScoresFullReg, sum(Czscores[i, CQuicknessGroupFullReg]*CQuicknessGroupWeightsFullReg)/sum(CQuicknessGroupWeightsFullReg))
+  CRunBlockingScoresFullReg = append(CRunBlockingScoresFullReg, sum(Czscores[i, CRunBlockingGroupFullReg]*CRunBlockingGroupWeightsFullReg)/sum(CRunBlockingGroupWeightsFullReg))
+  CStrengthScoresFullReg = append(CStrengthScoresFullReg, sum(Czscores[i, CStrengthGroupFullReg]*CStrengthGroupWeightsFullReg)/sum(CStrengthGroupWeightsFullReg))
+  CSpeedScoresFullReg = append(CSpeedScoresFullReg, sum(Czscores[i, CSpeedGroupFullReg]*CSpeedGroupWeightsFullReg)/sum(CSpeedGroupWeightsFullReg))
+  CClusterFullReg[i, 1] = COVRFullReg[i]
+  CClusterFullReg[i, 2] = CPassBlockingScoresFullReg[i]
+  CClusterFullReg[i, 3] = CQuicknessScoresFullReg[i]
+  CClusterFullReg[i, 4] = CRunBlockingScoresFullReg[i]
+  CClusterFullReg[i, 5] = CStrengthScoresFullReg[i]
+  CClusterFullReg[i, 6] = CSpeedScoresFullReg[i]
+}
+CClusterFullReg = data.frame(CClusterFullReg)
+rownames(CClusterFullReg) = do.call(paste, c(MaddenCs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CClusterFullReg) = c("Overall", "Pass Blocking", "Quickness", "Run Blocking", "Strength", "Speed")
+
+CClusterFullRegNoOverall = CClusterFullReg[,-1]
+
+# This does the same thing but for the normalized feature scores
+
+CPassBlockingGroupFullNorm = CPassBlockingGroupFullReg-1
+CQuicknessGroupFullNorm = CQuicknessGroupFullReg-1
+CRunBlockingGroupFullNorm = CRunBlockingGroupFullReg-1
+CStrengthGroupFullNorm = CStrengthGroupFullReg-1
+CSpeedGroupFullNorm = CSpeedGroupFullReg-1
+
+CPassBlockingGroupWeightsFullNorm = CPassBlockingGroupWeightsFullReg
+CQuicknessGroupWeightsFullNorm = CQuicknessGroupWeightsFullReg
+CRunBlockingGroupWeightsFullNorm = CRunBlockingGroupWeightsFullReg
+CStrengthGroupWeightsFullNorm = CStrengthGroupWeightsFullReg
+CSpeedGroupWeightsFullNorm = CSpeedGroupWeightsFullReg
+
+CPassBlockingScoresFullNorm = c()
+CQuicknessScoresFullNorm = c()
+CRunBlockingScoresFullNorm = c()
+CStrengthScoresFullNorm = c()
+CSpeedScoresFullNorm = c()
+
+CClusterFullNorm = matrix(0, nrow = length(COriginal[,1]), ncol = 5)
+CClusterFullNormtemp = CClusterFullNorm
+```
+
+```{r, echo=FALSE}
+
+for (i in 1: length(CNormzscores[,1])) {
+  CPassBlockingScoresFullNorm = append(CPassBlockingScoresFullNorm, sum(CNormzscores[i, CPassBlockingGroupFullNorm]*CPassBlockingGroupWeightsFullNorm)/sum(CPassBlockingGroupWeightsFullNorm))
+  CQuicknessScoresFullNorm = append(CQuicknessScoresFullNorm, sum(CNormzscores[i, CQuicknessGroupFullNorm]*CQuicknessGroupWeightsFullNorm)/sum(CQuicknessGroupWeightsFullNorm))
+  CRunBlockingScoresFullNorm = append(CRunBlockingScoresFullNorm, sum(CNormzscores[i, CRunBlockingGroupFullNorm]*CRunBlockingGroupWeightsFullNorm)/sum(CRunBlockingGroupWeightsFullNorm))
+  CStrengthScoresFullNorm = append(CStrengthScoresFullNorm, sum(CNormzscores[i, CStrengthGroupFullNorm]*CStrengthGroupWeightsFullNorm)/sum(CStrengthGroupWeightsFullNorm))
+  CSpeedScoresFullNorm = append(CSpeedScoresFullNorm, sum(CNormzscores[i, CSpeedGroupFullNorm]*CSpeedGroupWeightsFullNorm)/sum(CSpeedGroupWeightsFullNorm))
+  CClusterFullNormtemp[i, 1] = CPassBlockingScoresFullNorm[i]
+  CClusterFullNormtemp[i, 2] = CQuicknessScoresFullNorm[i]
+  CClusterFullNormtemp[i, 3] = CRunBlockingScoresFullNorm[i]
+  CClusterFullNormtemp[i, 4] = CStrengthScoresFullNorm[i]
+  CClusterFullNormtemp[i, 5] = CSpeedScoresFullNorm[i]
+}
+
+CClusterFullNormtemp = data.frame(CClusterFullNormtemp)
+
+CrowadjclusterFullNorm = length(CClusterFullNorm[1,])
+for (i in 1:length(CClusterFullNormtemp)) {
+  for (j in 1:length(CClusterFullNormtemp[,1])) {
+  CClusterFullNorm[j, i] = CClusterFullNormtemp[j, i]-(sum(CClusterFullNormtemp[j,])/CrowadjclusterFullNorm)
+  }
+}
+
+CClusterFullNorm = data.frame(CClusterFullNorm)
+rownames(CClusterFullNorm) = do.call(paste, c(MaddenCs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CClusterFullNorm) = c("Pass Blocking", "Quickness", "Run Blocking", "Strength", "Speed")
+
+# This does the above for the reduced metafeatures (3)
+
+# Reduced
+# Cluster 1: Speed (Speed, Acceleration, Agility)
+# Cluster 2: Blocking (Awareness, Run Block, Pass Block, Toughness, Impact Block)
+# Cluster 3: Strength (Strength)
+
+Creducedcriteriaclusters
+
+CSpeedGroupReducedReg = c(2, 3, 5)
+CBlockingGroupReducedReg = c(6, 7, 8, 9, 10)
+CStrengthGroupReducedReg = c(4)
+
+summary(Creducedfit)
+
+CSpeedGroupWeightsReducedReg = c(29.42, 24.40, 47.85)
+CBlockingGroupWeightsReducedReg = c(446.7, 386.3, 282.3, 0, 98.81)
+CStrengthGroupWeightsReducedReg = c(108.2)
+
+COVRReducedReg = c()
+CSpeedScoresReducedReg = c()
+CBlockingScoresReducedReg = c()
+CStrengthScoresReducedReg = c()
+
+CClusterReducedReg = matrix(0, nrow = length(COriginal[,1]), ncol = 4)
+
+for (i in 1: length(CReduced[,1])) {
+  COVRReducedReg = append(COVRReducedReg, CReduced[i, 1])
+  CSpeedScoresReducedReg = append(CSpeedScoresReducedReg, sum(CReduced[i, CSpeedGroupReducedReg]*CSpeedGroupWeightsReducedReg)/sum(CSpeedGroupWeightsReducedReg))
+  CBlockingScoresReducedReg = append(CBlockingScoresReducedReg, sum(CReduced[i, CBlockingGroupReducedReg]*CBlockingGroupWeightsReducedReg)/sum(CBlockingGroupWeightsReducedReg))
+  CStrengthScoresReducedReg = append(CStrengthScoresReducedReg, sum(CReduced[i, CStrengthGroupReducedReg]*CStrengthGroupWeightsReducedReg)/sum(CStrengthGroupWeightsReducedReg))
+  CClusterReducedReg[i, 1] = COVRReducedReg[i]
+  CClusterReducedReg[i, 2] = CSpeedScoresReducedReg[i]
+  CClusterReducedReg[i, 3] = CBlockingScoresReducedReg[i]
+  CClusterReducedReg[i, 4] = CStrengthScoresReducedReg[i]
+}
+CClusterReducedReg = data.frame(CClusterReducedReg)
+rownames(CClusterReducedReg) = do.call(paste, c(MaddenCs[c("First.Name", "Last.Name")], sep = " "))
+colnames(CClusterReducedReg) = c("Overall", "Speed", "Blocking", "Strength")
+
+```
+
+```{r, echo=FALSE}
+CClusterReducedRegNoOverall = CClusterReducedReg[,-1]
+
+# This runs normalization on the reduced group
+
+CSpeedGroupReducedNorm = CSpeedGroupReducedReg - 1
+CBlockingGroupReducedNorm = CBlockingGroupReducedReg - 1
+CStrengthGroupReducedNorm = CStrengthGroupReducedReg - 1
+
+CSpeedGroupWeightsReducedNorm = CSpeedGroupWeightsReducedReg
+CBlockingGroupWeightsReducedNorm = CBlockingGroupWeightsReducedReg
+CStrengthGroupWeightsReducedNorm = CStrengthGroupWeightsReducedReg
+
+CSpeedScoresReducedNorm = c()
+CBlockingScoresReducedNorm = c()
+CStrengthScoresReducedNorm = c()
+
+```
+
+```{r, echo=FALSE}
+
+CClusterReducedNorm = matrix(0, nrow = length(CNormReduced[,1]), ncol = 3)
+CClusterReducedNormtemp = CClusterReducedNorm
+for (i in 1: length(CNormReduced[,1])) {
+  CSpeedScoresReducedNorm = append(CSpeedScoresReducedNorm, sum(CNormReduced[i, CSpeedGroupReducedNorm]*CSpeedGroupWeightsReducedNorm)/sum(CSpeedGroupWeightsReducedNorm))
+  CBlockingScoresReducedNorm = append(CBlockingScoresReducedNorm, sum(CNormReduced[i, CBlockingGroupReducedNorm]*CBlockingGroupWeightsReducedNorm)/sum(CBlockingGroupWeightsReducedNorm))
+  CStrengthScoresReducedNorm = append(CStrengthScoresReducedNorm, sum(CNormReduced[i, CStrengthGroupReducedNorm]*CStrengthGroupWeightsReducedNorm)/sum(CStrengthGroupWeightsReducedNorm))
+  CClusterReducedNormtemp[i, 1] = CSpeedScoresReducedNorm[i]
+  CClusterReducedNormtemp[i, 2] = CBlockingScoresReducedNorm[i]
+  CClusterReducedNormtemp[i, 3] = CStrengthScoresReducedNorm[i]
+}
+
+CClusterReducedNormtemp = data.frame(CClusterReducedNormtemp)
+
+CrowadjclusterReducedNorm = length(CClusterReducedNorm[1,])
+for (i in 1:length(CClusterReducedNormtemp)) {
+  for (j in 1:length(CClusterReducedNormtemp[,1])) {
+  CClusterReducedNorm[j, i] = CClusterReducedNormtemp[j, i]-(sum(CClusterReducedNormtemp[j,])/CrowadjclusterReducedNorm)
+  }
+}
+
+```
+
+```{r, echo=FALSE}
+
+CClusterReducedNorm = data.frame(CClusterReducedNorm, row.names = do.call(paste, c(MaddenCs[c("First.Name", "Last.Name")], sep = " ")))
+colnames(CClusterReducedNorm) = c("Speed", "Blocking", "Strength")
+
+# This clusters the players 
+
+Cnclusters = 5
+
+set.seed(1)
+Ckz = kmeans(Czscores, Cnclusters)
+set.seed(1)
+CNormkz = kmeans(CNormzscores, Cnclusters)
+set.seed(1)
+Ckreduced = kmeans(CReduced, Cnclusters)
+set.seed(1)
+CNormkreduced = kmeans(CNormReduced, Cnclusters)
+
+set.seed(1)
+CkclusterReducedReg = kmeans(CClusterReducedReg, Cnclusters)
+set.seed(1)
+CkclusterReducedNorm = kmeans(CClusterReducedNorm, Cnclusters)
+set.seed(1)
+CkclusterFullReg = kmeans(CClusterFullReg, Cnclusters)
+set.seed(1)
+CkclusterFullNorm = kmeans(CClusterFullNorm, Cnclusters)
+
+
+clusplot(Czscores, Ckz$cluster, lines=0, labels=2, cex=0.75)
+Ckz$centers
+clusplot(CNormzscores, CNormkz$cluster, lines=0, labels=2, cex=0.75)
+CNormkz$centers
+clusplot(CReduced, Ckreduced$cluster, lines=0, labels=2, cex=0.75)
+Ckreduced$centers
+clusplot(CNormReduced, CNormkreduced$cluster, lines=0, labels=2, cex=0.75)
+CNormkreduced$centers
+
+clusplot(CClusterReducedReg, CkclusterReducedReg$cluster, lines=0, labels=2, cex=0.75)
+CkclusterReducedReg$centers
+clusplot(CClusterReducedNorm, CkclusterReducedNorm$cluster, lines=0, labels=2, cex=0.75)
+CkclusterReducedNorm$centers
+clusplot(CClusterFullReg, CkclusterFullReg$cluster, lines=0, labels=2, cex=0.75)
+CkclusterFullReg$centers
+clusplot(CClusterFullNorm, CkclusterFullNorm$cluster, lines=0, labels=2, cex=0.75)
+CkclusterFullNorm$centers
+
+# Here is where We analyze the clusters
+# Reduced Norm
+# Cluster 1 ATHLETIC POOR BLOCKER
+# Cluster 2 BALANCED CENTER
+# Cluster 3 POWER CENTER
+# Cluster 4 QUICK CENTER
+# Cluster 5 TECHNIQUE BLOCKER
+
+# Full Norm
+# Cluster 1 ATHLETIC POOR BLOCKER
+# Cluster 2 QUICK RUN BLOCKER
+# Cluster 3 STRONG BLOCKER
+# Cluster 4 QUICK CENTER
+# Cluster 5 PASS BLOCKER
+```
+
+
+
+```{r, echo=FALSE}
+CClusterReducedNorm
+CClusterFullNorm
+CkclusterReducedNorm
+CkclusterFullNorm
+
+# This creates the un-normalized cluster weights based on the relationships of the clusters to the Overall score
+
+Creducedmetafit <- lm(CClusterReducedReg[,1] ~ CClusterReducedReg[,2] + CClusterReducedReg[,3] + CClusterReducedReg[,4], data = CClusterReducedReg)
+summary(Creducedmetafit)
+Cunreducedmetafit <- lm(CClusterFullReg[,1] ~ CClusterFullReg[,2] + CClusterFullReg[,3] + CClusterFullReg[,4] + CClusterFullReg[,5] + CClusterFullReg[,6], data = CClusterFullReg)
+summary(Cunreducedmetafit)
+
+normalizetolength = function(v, l = 1) {
+  newvector = v
+  sum = sum(v)
+  for (i in 1:length(v)) {
+    newvector[i] = l*v[i]/sum
+  }
+  return(newvector)
+}
+
+normalizealldataframe = function(frame, l = 1) {
+  newframe = frame
+  for (i in 1:length(frame[,1])) {
+    tempsum = sum(newframe[i,])
+    newframe[i,] = l*frame[i,]/tempsum
+  }
+  newframe
+}
+
+# These standard weights come from that regression
+
+summary(Creducedmetafit)
+
+Cstandardreducedweights = c(103.6, 1210.0, 108.2)
+Cstandardreducedweights = Cstandardreducedweights/sum(Cstandardreducedweights)
+
+summary(Cunreducedmetafit)
+
+Cstandardunreducedweights = c(284.0, 46.06, 929.0, 107.1, 57.39)
+Cstandardunreducedweights = Cstandardunreducedweights/sum(Cstandardunreducedweights)
+
+# These cluster weights come from the centers of the clusters
+
+Cclusterreducedweights = normalizealldataframe(pnorm(CkclusterReducedNorm$centers))
+Cclusterunreducedweights = normalizealldataframe(pnorm(CkclusterFullNorm$centers))
+
+Cadjustedreducedweights = Cclusterreducedweights
+Cadjustedunreducedweights = Cclusterunreducedweights
+
+# The adjusted cluster weights are the average of the standard weights and the cluster weights
+
+for(i in 1:5) {
+  Cadjustedreducedweights[i,] = normalizetolength(Cstandardreducedweights+Cclusterreducedweights[i,])
+  Cadjustedunreducedweights[i,] = normalizetolength(Cstandardunreducedweights+Cclusterunreducedweights[i,])
+}
+
+CTotalScoresReduced = CClusterReducedRegNoOverall
+CTotalScoresUnreduced = CClusterFullRegNoOverall
+
+# The total scores are the weighted metafeature cluster scores, adjusted to a 0 to 100 pnormed concept.
+
+for (i in 1:length(COriginal[,1])) {
+  for (j in 1:5) {
+    CTotalScoresReduced[i, j] = 100*pnorm(sum(CClusterReducedRegNoOverall[i,]*Cadjustedreducedweights[j,]))
+  }
+}
+
+for (i in 1:length(COriginal[,1])) {
+  for (j in 1:5) {
+    CTotalScoresUnreduced[i, j] = 100*pnorm(sum(CClusterFullRegNoOverall[i,]*Cadjustedunreducedweights[j,]))
+  }
+}
+
+CkclusterFullNorm$centers
+CkclusterReducedNorm$centers
+
+# Full Norm
+# Cluster 1 ATHLETIC POOR BLOCKER
+# Cluster 2 QUICK RUN BLOCKER
+# Cluster 3 STRONG BLOCKER
+# Cluster 4 QUICK CENTER
+# Cluster 5 PASS BLOCKER
+
+# Reduced Norm
+# Cluster 1 ATHLETIC POOR BLOCKER
+# Cluster 2 BALANCED CENTER
+# Cluster 3 POWER CENTER
+# Cluster 4 QUICK CENTER
+# Cluster 5 TECHNIQUE BLOCKER
+
+colnames(CTotalScoresUnreduced) = c("Athletic Poor Blocker", "Quick Run Blocker", "Strong Blocker", "Quick Center", "Pass Blocker")
+colnames(CTotalScoresReduced) = c("Athletic Poor Blocker", "Balanced Center", "Power Center", "Quick Center", "Technique Blocker")
+
+CTotalScoresReduced
+CTotalScoresUnreduced
+
+CTotalScoresReducedwithOVR = CTotalScoresReduced
+CTotalScoresUnreducedwithOVR = CTotalScoresUnreduced
+
+CTotalScoresReducedwithOVR[,6] = COriginal[,1]
+CTotalScoresUnreducedwithOVR[,6] = COriginal[,1]
+
+CTotalScoresReducedwithOVR
+CTotalScoresUnreducedwithOVR
+
+```

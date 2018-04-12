@@ -1,0 +1,118 @@
+\documentclass[12pt]{article}
+%\usepackage{xltxtra}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{soul}
+\title{Quarterback Cluster Analysis Without Expert Knowledge And How It Failed}
+\author{Gavin Byrnes}
+\date{4 February 2016}
+%\setcounter{tocdepth}{2}
+\usepackage{hyperref}
+\definecolor{shadecolor}{cmyk}{0.05,0,0,0}
+\definecolor{TFFrameColor}{rgb}{0,1,0}
+\definecolor{TFTitleColor}{rgb}{1,0,0}
+\newcommand{\itodo}[2]{\todo[inline, color=#1]{#2}}
+\newcommand{\ftodo}[3]{\todo[inline, color=#1, caption=#2]{#3}}
+\newcommand{\tcolorNewFeature}{green!40}
+\newcommand{\tcolorUnfinishedResearch}{red!40}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This paper is a companion paper to the introduction of a new approach to portfolio construction in (cite other paper). In this paper, we attempt to remove the need for the expert knowledge provided by the Overall rating in clustering analysis. We use a similar clustering method on quarterback ratings without the assistance of regressing against Overall ratings and demonstrate that the results do not pass a sanity check on known quarterback quality, implying that the portfolio construction archetype we are attempting to build will most likely not be able to stand alone without any expert input.
+\end{abstract}
+
+\section{Introduction}
+In (cite other paper), we establish the groundwork for a new approach to nonlinear portfolio construction using the process of building a football team. We used Madden video game ratings and clustering techniques to construct different archetypes for the quarterback position that we could then use to evaluate players against different heuristics of what makes a good quarterback. Though our primary data set was individual criteria ratings, we also used the game's Overall rating as a guideline of expert knowledge about which criteria are considered most important to the position. While there is nothing inherently wrong with the use of expert knowledge in this way, we wanted to explore the possibility of eliminating the use of the overall rating (and therefore this type of expert knowledge); if we could construct reasonable archetype ratings without using the Overall score as a guideline, this would be an indication that expert knowledge might not be as necessary to our portfolio analyses and that in situations in which it was unavailable we could still build strong portfolio paradigms with only our analysis.
+
+Unfortunately, we failed to do so. The archetypes built without using expert knowledge of Overall ratings failed to pass the eye test in a number of crucial ways, implying that, while we can use clustering analysis and our overall process to make portfolio construction more efficient, we still need some expert guidance, especially in constructing the archetypes. This paper examines our attempt to remove the Overall rating from our quarterback clustering process, and concludes that for the time being it has been unsuccessful.
+
+
+\section{Data Collection}\footnote{This section is reproduced mostly verbatim from (cite other paper), except for the attempt to exclude the overall rating.}
+The data for this project are the ratings for the video game Madden 2016, found at \cite{spreadsheet}. 
+\begin{enumerate}
+	\item We imported the ratings for quarterbacks into R.
+	\item We subjectively reduced the number of criteria from 52 to 21, based on the observation that some abilities (Tackling, Catching, Kick Power, etc.) are irrelevant to playing quarterback
+\end{enumerate}
+
+\section{Processes}\footnote{This section is mostly reproduced from (cite other paper)}
+
+The first thing we did was to cluster the quarterbacks based on their ratings on these 21 categories. This was useful as an extremely basic sanity check on the clustering algorithm; generally speaking, good quarterbacks clustered with other good quarterbacks, scrambling quarterbacks clustered with other scrambling quarterbacks, etc. However, this was insufficient for several reasons:
+
+\begin{enumerate}
+	\item We want the archetypes of quarterbacks to be things like "pocket passer" and "running QB", not "good quarterback" and "bad quarterback"; this would ruin the point of comparing and contrasting across archetypes.
+	\item Clustering on raw attribute scores tends to put good quarterbacks with good quarterbacks and bad quarterbacks with bad quarterbacks, even if their \textit{relative} strengths and weaknesses don't match up. Therefore, we want to normalize scores when we cluster players. (but not when we rate them, of course)
+	\item The easiest and most intuitive way to normalize the scores is to make every player's ratings add up to the same number. However, the ranges of values differ greatly in both mean and standard deviation. For example, most quarterbacks have an Injury rating between 85 and 95 and a Throw Accuracy Deep rating between 50 and 75, while their Trucking ratings range from 20 to 76! 
+	\item The mathematically intuitive way to ensure that the normalization of ability is not dominated by the more variable attributes is to first convert the scores to z-scores.\footnote{Calculated for each data point by subtracting the mean of the overall dataset and dividing by the standard deviation}
+	\item Finally, having so many attributes makes the clusters awkward to visualize. In addition, anecdotal evidence suggests that some attributes, like Speed and Acceleration, or Throw Accuracy Short and Throw Accuracy Medium, would be very highly correlated. We decided that it would be a good idea to create clusters of the attributes themselves as well as the players to construct a smaller number of metafeatures to use in the eventual player clustering.
+\end{enumerate}
+
+Therefore, we performed the following process:
+
+\begin{itemize}
+	\item Begin with the data frame of the overall ratings and 21 raw attribute scores for quarterbacks, QBOriginal.
+	\item Construct the data frame QBzscores, obtained by replacing each element with its zscore using the means and standard deviations of each column of player ratings.
+	\item Construct the data frame QBNormzscores, which removes the Overall score and then adjusts every player's z-scores so that every player's sum of 21 attribute normalized z-scores is 0.
+	\item Construct a covariance matrix covar of the z-scores on each of the 21 attributes.
+\end{itemize}
+
+We entered this phase of the process with the following data frames:
+\begin{itemize}
+	\item{QBzscores}: Z-scores on the Overall score and 21 attributes
+	\item{QBnormzscores}: Z-scores on 21 attributes, adjusted so that each player row sums to 0.
+	\item{covar}: The covariance matrix for all 21 attributes, based on relatively correlated player performance on pairs of attributes
+\end{itemize}
+
+We performed a cluster analysis on the above covariance matrix, which in this case we elected to place into four clusters:
+
+\begin{itemize}
+	\item {Power Run}: Carrying, Trucking, Stiff Arm, Throw On The Run
+	\item {Accuracy}: Awareness, Throw Accuracy Short, Throw Accuracy Mid, Throw Accuracy Deep, Stamina, Toughness, Play Action
+	\item {Power Throw}: Strength, Throw Power, Injury
+	\item {Speed}: Speed, Acceleration, Agility, Elusiveness, Ball Carrier Vision, Spin Move, Juke Move
+\end{itemize}
+
+We tried several methods of weighting the subcriteria within these four clusters, from allowing them to be all equal to estimating based on a new covariance matrix that indicated which ones were more related to each other. In 
+In all these cases, we constructed the data set QBNormClusters, with four columns for each quarterback's aggregated performance on the four meta-features listed above (Power Run, Accuracy, Power Throw, and Speed). 
+After renormalizing the data set, we performed another clustering, experimenting with the number of clusters to use and settling on six, as follows:
+
+\begin{itemize}
+	\item Scrambler: High Speed, High Power Run, Slightly Low Power Throw, Very low Accuracy
+	\item Balanced: High Accuracy, Slightly Low Power Run/Power Throw/Speed
+	\item West Coast: Average Power Run, Average Accuracy, Low Power Throw, High Speed
+	\item Deep Ball: Average Power Run, Slightly High Accuracy, Very High Power Throw, Very Low Speed
+	\item Pocket Passer: Low Power Run, Extremely High Accuracy, High Power Throw, Extremely Low Speed
+	\item Inaccurate Big Arm: Average Power Run, Low Accuracy, High Power Throw, Average Speed
+\end{itemize}
+
+With these archetypes constructed, we scored every player's normalized attributes against these archetypes. We did this as follows:
+
+\begin{enumerate}
+	\item Convert the cluster means for each archetype into cluster weights of each meta-feature. To do this, we took the pnorm (cumulative density function) of each value and normalized so that each row summed to 1. For example, the cluster weights for Scrambler were constructed by taking the pnorms of (0.357, -0.925, -0.144, 0.712) to get raw weights of (0.639, 0.177, 0.443, 0.762) and then dividing by the sum to get the overall weights of 0.316*Power Run + 0.088*Accuracy + 0.219*Power Throw + 0.377*Speed.
+	\item Sum up the original z-scores multiplied by the cluster weights to get raw z-score-based scores for each player on each archetype. 
+	\item Take the p-norm of this number and multiply by 100 to return to a 0 to 100 scale based on a normal distribution (50 is average).
+\end{enumerate}
+
+\subsection{Example Calculation}
+
+Ryan Tannehill has z-scores of 0.934 on Power Run, 0.845 on Accuracy, 0.647 on Power Throw, and 1.055 on Speed. Multiplying these by the Scrambler weights and adding them up gets 0.909. Take the pnorm, multiply by 100, and round to two decimal places, and Ryan Tannehill's score on the Scrambler archetype is 81.84.
+
+\section{Results and Tables}
+
+(insert R Markdown document)
+
+\section{Analysis}
+
+The results reveal the fundamental problem of attempting this analysis without reference to overall scores or any other expert metric. We are effectively treating all the aspects of being a quarterback as starting out as equal, and only then being adjusted based on clustering. Actual passing ability is hardly more highly weighted than stiff arming or carrying the ball, and sometimes given less weight. 
+
+The result is a set of results that simply do not pass the eye test. Cam Newton and Aaron Rodgers excel under all circumstances, as we would expect, but running specialists like Terrelle Pryor and Johnny Manziel end up scoring higher than Peyton Manning and Tom Brady, not just as scramblers (which might be justifiable) but even as "Balanced" quarterbacks. There are many more examples of this fundamental truth; the cluster analysis by itself is not sufficient without some reference to the fact that some attributes are in truth more important than others.
+
+\section{Conclusions and Future Research}
+
+We conclude that reference to the overall grade or some other expert-vetted measurement of performance is necessary for our clustering analysis to make sense. Thus future research will return to the method outlined in the previous paper. 
+
+However, we note that in cases in which expert knowledge proves unavailable or unnecessary, the tactics we have used here to weight the clusters could be revisited.
+
+\bibliographystyle{plain}
+\bibliography{programming}
+
+\end{document}
